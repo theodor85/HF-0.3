@@ -16,7 +16,16 @@ namespace Home_Finance_02
         Rest = 0
     }
 
-    //****************** Блок публичных структур для отчетов ************************** 
+    // перечисление - вид операции для доступа к таблицам базы данных
+    public enum QueryType
+    {
+        INSERT = 1,
+        SELECT = 2,
+        UPDATE = 3,
+        DELETE = 4
+    }
+
+    #region//****************** Блок публичных структур для отчетов ************************** 
 
     // Структура, описывающая состояние элемента справочнка. Под состоянием понимается пара 
     // <ИмяЭлемента, Сумма>. 
@@ -37,6 +46,49 @@ namespace Home_Finance_02
         public string Source;
         public string Destination;
         public double Sum;
+    }
+
+    #endregion
+
+    //********************* Абстрактный объект для всех компонентов (справочников, операций, регистров...) 
+    public abstract class DataBaseObject
+    {
+        protected SQLQueryConstructor QueryConstructor;
+        protected LowLevelAccessProvider TablesAccessProvider;
+    } 
+
+
+    //********************* Объект Cправочник **********************************************
+    public class Reference: DataBaseObject
+    {
+        string ReferenceName;
+
+        public Reference(string ReferenceName)
+        {
+            this.ReferenceName = ReferenceName;
+        }
+
+        
+        public void AddItem(string ItemName)
+        {
+            // синтезируем строку SQL-запроса и обращаемся к БД
+            try{
+                TablesAccessProvider.ChangeDataInBD(QueryConstructor.GetCommandStringINSERT(ReferenceName, ItemName));
+            }
+            catch (Exception e){
+                throw new Exception("Ошибка в функции Reference.AddItem: ошибка доступа к БД. Сообщение: " + e.Message, e);
+            }
+        }
+
+        public List<string> GetItemsList(string ReferenceName)
+        {
+
+        }
+
+        public void DeleteItem(string ItemName)
+        {
+
+        }
     }
 
     public class HF_BD
@@ -73,8 +125,6 @@ namespace Home_Finance_02
 
         // добавление элемента справочнка
         // возващаемые значения:
-        // 0  - успешно выполнено добавление
-        // -1 - ошибка доступа к БД
         public void AddReferenceItem(string ReferenceName, string ItemName)
         {
             // синтезируем строку SQL-запроса
@@ -725,4 +775,90 @@ namespace Home_Finance_02
         }
         #endregion
     }
+
+    #region // ***************************** Классы, абстрагирующие низкоуровневые операции с Базой данных *****
+
+    public class SQLQueryConstructor
+    {
+        public string GetCommandStringINSERT(string TableName, string ItemName)
+        {
+            return "INSERT INTO HomeFinance.dbo." + TableName + " (Name) VALUES (N\'" + ItemName + "\')";
+        }
+    }
+
+    public class LowLevelAccessProvider
+    {
+
+        // поля для инициализации базы данных DataProvider и ConnString
+        string DataProvider;
+        string ConnString;
+
+        // фабрика поставщиков и подключение
+        DbProviderFactory ProviderFactory;
+        DbConnection Connection;
+
+        // конструктор
+        public LowLevelAccessProvider()
+        {
+            // получаем провайдер данных и строку подклчения из конфигурационного файла
+            DataProvider = ConfigurationManager.AppSettings["provider"];
+            ConnString = ConfigurationManager.AppSettings["cnStr"];
+
+            // получаем фабрику поставщиков и объект подключения
+            ProviderFactory = DbProviderFactories.GetFactory(DataProvider);
+            Connection = ProviderFactory.CreateConnection();
+            Connection.ConnectionString = ConnString;
+        }
+
+        // функция чтения данных из БД
+        public DbDataReader ReadDataFromBD(string CommandString)
+        {
+            // получаем фабрику поставщиков
+            DbProviderFactory df = DbProviderFactories.GetFactory(DataProvider);
+            // работа с подключением 
+            DbConnection cn = df.CreateConnection();
+
+            cn.ConnectionString = ConnString;
+            cn.Open();
+            // объект команды
+            DbCommand cmd = df.CreateCommand();
+            cmd.Connection = cn;
+            cmd.CommandText = CommandString;
+
+            // используем объект чтения
+            DbDataReader dr = cmd.ExecuteReader();
+            return dr;
+
+        }
+        // функция изменения данных в БД
+        public void ChangeDataInBD(string CommandString)
+        {
+            // получаем фабрику поставщиков
+            DbProviderFactory df = DbProviderFactories.GetFactory(DataProvider);
+            // работа с подключением 
+            using (DbConnection cn = df.CreateConnection())
+            {
+                cn.ConnectionString = ConnString;
+                cn.Open();
+                // объект команды
+                DbCommand cmd = df.CreateCommand();
+                cmd.Connection = cn;
+                cmd.CommandText = CommandString;
+
+                // используем объект чтения
+                try
+                {
+                    cmd.ExecuteNonQuery();
+                }
+                catch
+                {
+                    return;
+                }
+            }
+            return;
+        }
+
+    }
+
+    #endregion
 }

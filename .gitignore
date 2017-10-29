@@ -88,10 +88,6 @@ ipch/
 *.vspx
 *.sap
 
-#Vsiakaia fignia
-*.sln
-*.csproj
-
 # TFS 2012 Local Workspace
 $tf/
 
