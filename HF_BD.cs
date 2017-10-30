@@ -4,7 +4,7 @@ using System.Configuration;
 using System.Data.Common;
 using System.Globalization;
 
-namespace Home_Finance_02
+namespace HomeFinance.AccountingSystem
 {
 
     // типы операций: расход, доход, перемещение, ввод остатка
@@ -50,46 +50,174 @@ namespace Home_Finance_02
 
     #endregion
 
-    //********************* Абстрактный объект для всех компонентов (справочников, операций, регистров...) 
-    public abstract class DataBaseObject
+    //********************* Абстрактный объект для всех компонентов систумы учета(справочников, операций, регистров...) 
+    public abstract class AccountingSystemObject
     {
-        protected SQLQueryConstructor QueryConstructor;
-        protected LowLevelAccessProvider TablesAccessProvider;
+        protected static LowLevelAccessProvider DataBaseAccessProvider;
+        protected void Initialization()
+        {
+            if (DataBaseAccessProvider == null)
+                DataBaseAccessProvider = new LowLevelAccessProvider();
+        }
+
     } 
 
-
-    //********************* Объект Cправочник **********************************************
-    public class Reference: DataBaseObject
+    //********************* Класс Cправочник **********************************************
+    public class Reference: AccountingSystemObject
     {
         string ReferenceName;
 
         public Reference(string ReferenceName)
         {
             this.ReferenceName = ReferenceName;
+            base.Initialization();
         }
-
-        
         public void AddItem(string ItemName)
         {
             // синтезируем строку SQL-запроса и обращаемся к БД
-            try{
-                TablesAccessProvider.ChangeDataInBD(QueryConstructor.GetCommandStringINSERT(ReferenceName, ItemName));
+            string CommandString = "INSERT INTO HomeFinance.dbo." + ReferenceName + " (Name) VALUES (N\'" + ItemName + "\')";
+            try {
+                DataBaseAccessProvider.ChangeDataInBD(CommandString);
             }
             catch (Exception e){
                 throw new Exception("Ошибка в функции Reference.AddItem: ошибка доступа к БД. Сообщение: " + e.Message, e);
             }
         }
+        public List<string> GetItemsList()
+        {            
+            List<string> ItemsList = new List<string>(); // выходной список
+            DbDataReader dr;
+            string CommandString = "SELECT * FROM HomeFinance.dbo." + ReferenceName;
+            
+            // обращаемся к БД и получаем объект чтения
+            try{
+                dr = DataBaseAccessProvider.ReadDataFromBD(CommandString);
+            }
+            catch (Exception e){
+                throw new Exception("Ошибка в функции Reference.GetItemsList. Ошибка доступа к БД. Сообщение: " + e.Message, e);
+            }
 
-        public List<string> GetItemsList(string ReferenceName)
-        {
-
+            // читаем записи из объекта чтения и добавляем полученный элемент в список
+            while (dr.Read()){ 
+                ItemsList.Add(dr["Name"].ToString());
+            }
+            return ItemsList;
         }
-
         public void DeleteItem(string ItemName)
         {
-
+            // синтезируем строку SQL-запроса и обращаемся к БД
+            string CommandString = "DELETE FROM HomeFinance.dbo." + ReferenceName + " WHERE Name = N\'" + ItemName + "\'";
+            try{
+                DataBaseAccessProvider.ChangeDataInBD(CommandString);
+            }
+            catch (Exception e){
+                throw new Exception("Ошибка в функции Reference.AddItem: ошибка доступа к БД. Сообщение: " + e.Message, e);
+            }
         }
     }
+
+    //********************* Публичный класс регистра оборотов - для получения отчетов по регистру ****************************
+    public class RegisterTurnoverReports:AccountingSystemObject
+    {
+        string RegisterName;
+        public RegisterTurnoverReports(string RegisterName)
+        {
+            this.RegisterName = RegisterName;
+            base.Initialization();
+        }
+        public List<TItemState> ReportTurnover(DateTime BeginDate, DateTime EndDate)
+        {            
+            List<TItemState> TurnoversList = new List<TItemState>();  // результирующий список            
+            string CommandString = "";                                     // строка SQL- запроса
+            DbDataReader DReader;                                     // объект чтения данных
+            // строковое представление даты для SQL-запроса
+            string strBeginDate = Utility.MakeSQLDate(BeginDate) ;
+            string strEndDate = Utility.MakeSQLDate(EndDate);
+
+            // получим все статьи расходов из справочника
+            CommandString = "SELECT ID, Name FROM HomeFinance.dbo." + RegisterName;
+            try{
+                DReader = DataBaseAccessProvider.ReadDataFromBD(CommandString);
+            }
+            catch (Exception e){
+                throw new Exception("Функция RegisterTurnoverReports.ReportTurnover: ошибка доступа к справочнику статей расходов. Сообщение: " + e.Message, e);
+            }
+
+            CommandString = "SELECT E.Name as Expense, SUM(R.MoveSum) as Rez FROM HomeFinance.dbo.RT_Moves_" + RegisterName;
+            CommandString = CommandString + " R, HomeFinance.dbo." + RegisterName + " E, HomeFinance.dbo.Operations O ";
+            CommandString = CommandString + "WHERE E.ID = R.Name AND O.ID = R.Operation AND O.Date >=" + strBeginDate + " AND O.Date <=" + strEndDate;
+            CommandString = CommandString + "group by E.Name ";
+
+            try{
+                DReader = DataBaseAccessProvider.ReadDataFromBD(CommandString);
+            }
+            catch (Exception e){
+                throw new Exception("Функция RegisterTurnoverReports.ReportTurnover: ошибка получения информации из регистра расходов. Сообщение: " + e.Message, e);
+            }
+
+            while (DReader.Read())
+            {
+                TItemState NewItem = new TItemState();
+                NewItem.ItemName = DReader["Expense"].ToString();
+                NewItem.Sum = (double)DReader["Rez"];
+                TurnoversList.Add(NewItem);
+            }
+            return TurnoversList;
+        }
+    }
+
+    //********************* Приватный класс регистра оборотов - для выполнения движений по регистру **************************
+
+    //********************* Публичный класс регистра остатков - для получения отчетов по регистру ****************************
+    public class RegisterRestReports : AccountingSystemObject
+    {
+        string RegisterName;
+        public RegisterRestReports(string RegisterName)
+        {
+            this.RegisterName = RegisterName;
+            base.Initialization();
+        }
+        public List<TItemState> ReportRests(DateTime Date)
+        {
+            
+            List<TItemState> BalanceList = new List<TItemState>(); // результирующий список             
+            string CommandString;// строка SQL- запроса
+            string strDate = Utility.MakeSQLDate(Date);  // строковое представление даты
+            List<string> ReferenceItems = new List<string>();  // список элементов справочника, ассоциированного с регистром
+
+            // получим все элементы из справочника
+            Reference Ref = new Reference(RegisterName);
+            ReferenceItems = Ref.GetItemsList();
+
+            CommandString = "";
+            try
+            {
+                foreach (string item in ReferenceItems)
+                {
+                    CommandString = "SELECT top(1) R.Date as Dt, W.Name as Nm, R.Rest as Sum FROM HomeFinance.dbo.RR_Rests_Wallets R, HomeFinance.dbo.Wallets W ";
+                    CommandString = CommandString + "WHERE R.Date<=" + strDate + " AND R.Name = W.ID AND W.Name = N\'" + item + "\'";
+                    CommandString = CommandString + " Order by Dt desc";
+
+                    DbDataReader Dr = DataBaseAccessProvider.ReadDataFromBD(CommandString);
+
+                    if (Dr.Read())
+                    {
+                        TItemState NewItem;
+                        NewItem.ItemName = Dr["Nm"].ToString();
+                        NewItem.Sum = (double)Dr["Sum"];
+                        BalanceList.Add(NewItem);
+                    }
+                }
+            }
+            catch (Exception e){
+                throw new Exception("Функция ReportBalance: ошибка получения отчета об остaтках. Сообщение: " + e.Message, e);
+            }
+
+            return BalanceList;
+        }
+    }
+
+    //********************* Приватный класс регистра остатков - для выполнения движений по регистру **************************
 
     public class HF_BD
     {
@@ -776,16 +904,7 @@ namespace Home_Finance_02
         #endregion
     }
 
-    #region // ***************************** Классы, абстрагирующие низкоуровневые операции с Базой данных *****
-
-    public class SQLQueryConstructor
-    {
-        public string GetCommandStringINSERT(string TableName, string ItemName)
-        {
-            return "INSERT INTO HomeFinance.dbo." + TableName + " (Name) VALUES (N\'" + ItemName + "\')";
-        }
-    }
-
+    // ***************************** Класс, абстрагирующий низкоуровневые операции с Базой данных *****
     public class LowLevelAccessProvider
     {
 
@@ -796,6 +915,8 @@ namespace Home_Finance_02
         // фабрика поставщиков и подключение
         DbProviderFactory ProviderFactory;
         DbConnection Connection;
+
+        int CurrentOperationID;
 
         // конструктор
         public LowLevelAccessProvider()
@@ -808,6 +929,40 @@ namespace Home_Finance_02
             ProviderFactory = DbProviderFactories.GetFactory(DataProvider);
             Connection = ProviderFactory.CreateConnection();
             Connection.ConnectionString = ConnString;
+
+            // получаем текущий номер последней операции
+            CurrentOperationID = ExtractCurrentOperationID();
+        }
+
+        int ExtractCurrentOperationID()
+        {
+            // находим максимальный номер OperationID
+            string CommandString = "select max(ID) as maxOpID from HomeFinance.dbo.Operations";
+            DbDataReader dr;  // Объект чтения данных
+            int MaxOperationID; // здесь будет результат
+
+            try{
+                dr = ReadDataFromBD(CommandString);
+            }
+            catch (Exception e){
+                throw new Exception("LowLevelAccessProvider.GetCurrentOperationID: Ошибка получения данных о номере операции. БД не инициализирована! Сообщение: " + e.Message, e);
+            }
+
+            dr.Read();
+            if (dr.IsDBNull(0))
+                MaxOperationID = -1;
+            else
+                MaxOperationID = (int)dr["maxOpID"];
+            return MaxOperationID;
+        }
+
+        public int GetCurrentOperationID()
+        {
+            return CurrentOperationID;
+        }
+        public void IncreaseCurrentOperationID()
+        {
+            CurrentOperationID++;
         }
 
         // функция чтения данных из БД
@@ -846,19 +1001,18 @@ namespace Home_Finance_02
                 cmd.CommandText = CommandString;
 
                 // используем объект чтения
-                try
-                {
-                    cmd.ExecuteNonQuery();
-                }
-                catch
-                {
-                    return;
-                }
+                cmd.ExecuteNonQuery();
             }
             return;
         }
 
     }
 
-    #endregion
+    // ***************************** Статический класс со вспомогательными функциями*******************
+    static class Utility
+    {
+        public static string MakeSQLDate(DateTime DT){
+            return "'" + DT.Month.ToString() + "." + DT.Day.ToString() + "." + DT.Year.ToString() + "'";
+        }
+    }
 }

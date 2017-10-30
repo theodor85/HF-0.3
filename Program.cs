@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using HomeFinance.ConsoleInterface;
+using HomeFinance.AccountingSystem;
 
-namespace Home_Finance_02
+namespace HomeFinance
 {
     class Program
     {

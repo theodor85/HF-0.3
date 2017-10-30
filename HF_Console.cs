@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
+using HomeFinance.AccountingSystem;
 
-//паттерн 
-namespace Home_Finance_02
+//паттерн Шаблоный метод
+namespace HomeFinance.ConsoleInterface
 {
     public abstract class Window
     {
@@ -151,14 +152,16 @@ namespace Home_Finance_02
             Console.WriteLine("На {0} у вас денег в кошельках: ", Today);
             Console.WriteLine();
 
-            List<TItemState> ReportMoneyInWallets = DB.ReportBalance(Today);
+            RegisterRestReports RR_Balance = new RegisterRestReports("Wallets");
+            List<TItemState> ReportMoneyInWallets = RR_Balance.ReportRests(Today);
             ReportOutput(ReportMoneyInWallets);
 
             // выводим отчет о расходах
             Console.WriteLine("-----------------------------------------------------------------");
             Console.WriteLine("Ваши РАСХОДЫ за период {0}.{1}: ", CurrentMonth, CurrentYear);
             Console.WriteLine();
-            List<TItemState> ReportExpenses = DB.ReportExpenses(BeginMonth, EndMonth);
+            RegisterTurnoverReports RT_ReportsExpenses = new RegisterTurnoverReports("Expenses");
+            List<TItemState> ReportExpenses = RT_ReportsExpenses.ReportTurnover(BeginMonth, EndMonth);
             ReportOutput(ReportExpenses);
 
             // выводим отчет о доходах
@@ -166,7 +169,8 @@ namespace Home_Finance_02
             Console.WriteLine("Ваши ДОХОДЫ за период {0}.{1}: ", CurrentMonth, CurrentYear);
             Console.WriteLine();
 
-            List<TItemState> ReportIncomes = DB.ReportIncomes(BeginMonth, EndMonth);
+            RegisterTurnoverReports RT_ReportsIncomes = new RegisterTurnoverReports("Incomes");
+            List<TItemState> ReportIncomes = RT_ReportsIncomes.ReportTurnover(BeginMonth, EndMonth);
             ReportOutput(ReportIncomes);
         }
         protected override void Inputs(ref string Parametres) { }
@@ -417,24 +421,28 @@ namespace Home_Finance_02
             // надписи
             string HeadLine = "";
             string ReferenceName = "";
-            string Invitation = "";
+            string InvitationAdd = "";
+            string InvitationDel = "";
 
-            switch(Parametres)
+            switch (Parametres)
             {
                 case "1":
                     HeadLine = "Доступные кошельки:";
                     ReferenceName = "Wallets";
-                    Invitation = "Новый кошелек";
+                    InvitationAdd = "Новый кошелек";
+                    InvitationDel = "Имя удаляемого кошелька";
                     break;
                 case "2":
                     HeadLine = "Доступные статьи расходов: ";
                     ReferenceName = "Expenses";
-                    Invitation = "Новая статья расходов";
+                    InvitationAdd = "Новая статья расходов";
+                    InvitationDel = "Удаляемая статья расходов";
                     break;
                 case "3":
                     HeadLine = "Доступные статьи доходов";
                     ReferenceName = "Incomes";
-                    Invitation = "Новая статья доходов";
+                    InvitationAdd = "Новая статья доходов";
+                    InvitationDel = "Удаляемая статья доходов";
                     break;
                 default:
                     return;
@@ -443,41 +451,58 @@ namespace Home_Finance_02
             do
             {
                 Console.Clear();
+                Reference Ref = new Reference(ReferenceName);
+
                 // выводим список кошельков
                 Console.WriteLine("-----------------------------------------------------------------");
                 Console.WriteLine(HeadLine);
                 Console.WriteLine();
-
-                try
-                {
-                    Items = DB.GetReferenceItemsList(ReferenceName);
+                try{
+                    Items = Ref.GetItemsList();
                 }
-                catch (Exception e)
-                {
+                catch (Exception e){
                     Console.WriteLine();
                     Console.WriteLine("ERROR: Во время получения списка элементов справочника произошла ошибка: " + e.Message + "\nНажмите Enter для продложения.");
                     Console.WriteLine();
                     Console.ReadLine();
                     continue;
                 }
-
-                ReportOutput(Items);
                 
-                Console.Write(Invitation + " ----->");
+                ReportOutput(Items);
+
+                Console.WriteLine("Возврат - 0; добавить элемент - 1; удалить элемент - 2");
+                Console.Write("--->");
+                string Action = Console.ReadLine();
+                if ((Action == "0") || ((Action != "1")&&(Action != "2")) )   // завершаем, если выбран либо 0, либо любой другой символ
+                    break;
+                
+                if (Action == "1")
+                    Console.Write(InvitationAdd + " ----->");
+                else
+                    Console.Write(InvitationDel + " ----->");
                 Item = Console.ReadLine();
 
                 try
                 {
-                    DB.AddReferenceItem(ReferenceName, Item);
-                    Console.WriteLine();
-                    Console.WriteLine("Элемент справочника успешно добавлен! Нажмите Enter для продложения.");
+                    if (Action == "1")
+                    {
+                        Ref.AddItem(Item);
+                        Console.WriteLine();
+                        Console.WriteLine("Элемент справочника успешно добавлен! Нажмите Enter для продложения.");
+                    }
+                    else
+                    {
+                        Ref.DeleteItem(Item);
+                        Console.WriteLine();
+                        Console.WriteLine("Элемент справочника успешно удалён! Нажмите Enter для продложения.");
+                    }                    
                     Console.WriteLine();
                     Console.ReadLine();
                 }
                 catch (Exception e)
                 {
                     Console.WriteLine();
-                    Console.WriteLine("ERROR: Во время добавления элемента справочника произошла ошибка: " + e.Message + "\nНажмите Enter для продложения.");
+                    Console.WriteLine("ERROR: Во время добавления/удаления элемента справочника произошла ошибка: " + e.Message + "\nНажмите Enter для продложения.");
                     Console.WriteLine();
                     Console.ReadLine();
                     continue;
