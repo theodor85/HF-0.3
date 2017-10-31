@@ -16,14 +16,6 @@ namespace HomeFinance.AccountingSystem
         Rest = 0
     }
 
-    // перечисление - вид операции для доступа к таблицам базы данных
-    public enum QueryType
-    {
-        INSERT = 1,
-        SELECT = 2,
-        UPDATE = 3,
-        DELETE = 4
-    }
 
     #region//****************** Блок публичных структур для отчетов ************************** 
 
@@ -53,70 +45,111 @@ namespace HomeFinance.AccountingSystem
     //********************* Абстрактный объект для всех компонентов систумы учета(справочников, операций, регистров...) 
     public abstract class AccountingSystemObject
     {
-        protected static LowLevelAccessProvider DataBaseAccessProvider;
-        protected void Initialization()
-        {
-            if (DataBaseAccessProvider == null)
-                DataBaseAccessProvider = new LowLevelAccessProvider();
-        }
+        protected DataBaseAccessProvider DBAccessProvider;
 
-    } 
+    }
 
-    //********************* Класс Cправочник **********************************************
-    public class Reference: AccountingSystemObject
+    //********************* Классы Cправочник  и Элемент справочника**********************************************
+    public class Reference : AccountingSystemObject
     {
         string ReferenceName;
+        List<ReferenceItem> ItemsList;
+        string CommandString;
 
         public Reference(string ReferenceName)
         {
-            this.ReferenceName = ReferenceName;
-            base.Initialization();
+            DBAccessProvider = new DataBaseAccessProvider();
+            this.ReferenceName = ReferenceName;  // еще надо бы проверить корректность имени справочника
+            ItemsList = null;
+            CommandString = "";
+            MakeSQLCommandItemsList();
+            ReferToDataBase();
+            RefreshItemsList();
         }
         public void AddItem(string ItemName)
         {
-            // синтезируем строку SQL-запроса и обращаемся к БД
-            string CommandString = "INSERT INTO HomeFinance.dbo." + ReferenceName + " (Name) VALUES (N\'" + ItemName + "\')";
-            try {
-                DataBaseAccessProvider.ChangeDataInBD(CommandString);
-            }
-            catch (Exception e){
-                throw new Exception("Ошибка в функции Reference.AddItem: ошибка доступа к БД. Сообщение: " + e.Message, e);
-            }
+            MakeSQLCommantAddItem(ItemName);
+            ReferToDataBase();
+            RefreshItemsList();
         }
         public List<string> GetItemsList()
-        {            
-            List<string> ItemsList = new List<string>(); // выходной список
-            DbDataReader dr;
-            string CommandString = "SELECT * FROM HomeFinance.dbo." + ReferenceName;
-            
-            // обращаемся к БД и получаем объект чтения
-            try{
-                dr = DataBaseAccessProvider.ReadDataFromBD(CommandString);
+        {
+            List<string> NamesList = new List<string>();
+            foreach (ReferenceItem item in ItemsList) {
+                NamesList.Add(item.Name);
             }
-            catch (Exception e){
-                throw new Exception("Ошибка в функции Reference.GetItemsList. Ошибка доступа к БД. Сообщение: " + e.Message, e);
-            }
-
-            // читаем записи из объекта чтения и добавляем полученный элемент в список
-            while (dr.Read()){ 
-                ItemsList.Add(dr["Name"].ToString());
-            }
-            return ItemsList;
+            return NamesList;
         }
         public void DeleteItem(string ItemName)
         {
-            // синтезируем строку SQL-запроса и обращаемся к БД
-            string CommandString = "DELETE FROM HomeFinance.dbo." + ReferenceName + " WHERE Name = N\'" + ItemName + "\'";
-            try{
-                DataBaseAccessProvider.ChangeDataInBD(CommandString);
+            MakeSQLCommantDeleteItem(ItemName);
+            ReferToDataBase();
+            RefreshItemsList();
+        }
+        public int GetID(string Name)
+        {
+            foreach (ReferenceItem item in ItemsList)
+                if (item.Name == Name) return item.ID;
+            throw new Exception("Reference.GetID: элемент '" + Name + "' справочника '"+ ReferenceName + "' не обнаружен!");
+        }
+        public string GetName(int ID)
+        {
+
+        }
+        public bool isItemExists(string ItemName)
+        {
+            foreach (ReferenceItem item in ItemsList)
+                if (item.Name == ItemName) return true;
+            return false;
+        }
+
+        void MakeSQLCommandItemsList(){
+            CommandString += "SELECT * FROM HomeFinance.dbo." + ReferenceName + "; ";
+        }
+        void MakeSQLCommantAddItem(string ItemName){
+             CommandString += "INSERT INTO HomeFinance.dbo." + ReferenceName + " (Name) VALUES (N\'" + ItemName + "\'); ";
+        }
+        void MakeSQLCommantDeleteItem(string ItemName){
+            CommandString += "DELETE FROM HomeFinance.dbo." + ReferenceName + " WHERE Name = N\'" + ItemName + "\'; ";
+        }
+
+        void ReferToDataBase()   // обратиться к Базе данных
+        {
+            DBAccessProvider.CommandString = CommandString;
+            try {
+                DBAccessProvider.Execute();
             }
-            catch (Exception e){
-                throw new Exception("Ошибка в функции Reference.AddItem: ошибка доступа к БД. Сообщение: " + e.Message, e);
+            catch (Exception e) {
+                throw new Exception("Ошибка в функции Reference.ReferToDataBase: ошибка доступа к БД. Сообщение: " + e.Message, e);
+            }
+            finally{                // Обязательная очистка командной строки
+                CommandString = "";
+            }
+        }
+
+        // обновляет список элементов из обхекта чтения данных
+        // применять сразу после обращения к БД (ReferToDataBase)
+        void RefreshItemsList()
+        {
+            DbDataReader dr = DBAccessProvider.DataReader;
+            while (dr.Read()){
+                ItemsList.Add(new ReferenceItem((int)dr["ID"], dr["Name"].ToString()));
             }
         }
     }
 
-    //********************* Публичный класс регистра оборотов - для получения отчетов по регистру ****************************
+    public class ReferenceItem
+    {
+        public int ID { get; set; }
+        public string Name { get; set; }
+        public ReferenceItem(int ID, string Name)
+        {
+            this.ID = ID;
+            this.Name = Name;
+        }
+    }
+
+    //********************* Классы регистра оборотов *****************************************
     public class RegisterTurnoverReports:AccountingSystemObject
     {
         string RegisterName;
@@ -166,9 +199,53 @@ namespace HomeFinance.AccountingSystem
         }
     }
 
-    //********************* Приватный класс регистра оборотов - для выполнения движений по регистру **************************
+    class RegisterTurnovers: AccountingSystemObject
+    {
+        string RegisterName;
+        public int OperaionNumber { get; set; }
+        public string Dimension
+        {
+            get { return Dimension; }
+            set
+            {
+                if (isDimensionExists(value))
+                    Dimension = value;
+                else
+                    throw new Exception("RegisterTurnovers.setDimension: элемент '" 
+                        + value + "' справочника '" + RegisterName + "' не существует!");
+            }
+        }
 
-    //********************* Публичный класс регистра остатков - для получения отчетов по регистру ****************************
+        public RegisterTurnovers(string RegisterName)
+        {
+            base.Initialization();
+            this.RegisterName = RegisterName;
+            RegisterName = "";
+            OperaionNumber = -1;
+        }
+        public void EnterMoving(DateTime OperationDate, double Sum)
+        {
+
+            string strDate = Utility.MakeSQLDate(OperationDate);
+            string strID;  // ID элемента справочника (разеза учета)
+            string CommandString = "";
+
+            // получить ID нашего разреза учета 
+            Reference Ref = new Reference(RegisterName);
+            strID = Ref.GetID(Dimension).ToString();
+
+            // сконструировать строку - SQL-запрос
+            CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RT_Moves_" + RegisterName + " (Operation, Name, MoveSum)";
+            CommandString = CommandString + " VALUES (" + OperationNumber.ToString() + ", " + strID + ", " + Sum.ToString("#####.00", CultureInfo.CreateSpecificCulture("en-US")) + "); ";
+
+        }
+
+        bool isDimensionExists(string DimensionName) {  // проверка элемента справочника на существование
+            return new Reference(RegisterName).isItemExists(DimensionName);
+        }
+    }
+
+    //********************* Классы регистра остатков *****************************************
     public class RegisterRestReports : AccountingSystemObject
     {
         string RegisterName;
@@ -181,7 +258,7 @@ namespace HomeFinance.AccountingSystem
         {
             
             List<TItemState> BalanceList = new List<TItemState>(); // результирующий список             
-            string CommandString;// строка SQL- запроса
+            string CommandString = "";// строка SQL- запроса
             string strDate = Utility.MakeSQLDate(Date);  // строковое представление даты
             List<string> ReferenceItems = new List<string>();  // список элементов справочника, ассоциированного с регистром
 
@@ -189,7 +266,6 @@ namespace HomeFinance.AccountingSystem
             Reference Ref = new Reference(RegisterName);
             ReferenceItems = Ref.GetItemsList();
 
-            CommandString = "";
             try
             {
                 foreach (string item in ReferenceItems)
@@ -217,7 +293,8 @@ namespace HomeFinance.AccountingSystem
         }
     }
 
-    //********************* Приватный класс регистра остатков - для выполнения движений по регистру **************************
+    public class RegisterRest : AccountingSystemObject
+    { }
 
     public class HF_BD
     {
@@ -905,7 +982,7 @@ namespace HomeFinance.AccountingSystem
     }
 
     // ***************************** Класс, абстрагирующий низкоуровневые операции с Базой данных *****
-    public class LowLevelAccessProvider
+    public class DataBaseAccessProvider
     {
 
         // поля для инициализации базы данных DataProvider и ConnString
@@ -915,11 +992,15 @@ namespace HomeFinance.AccountingSystem
         // фабрика поставщиков и подключение
         DbProviderFactory ProviderFactory;
         DbConnection Connection;
+        DbTransaction Transaction;
 
         int CurrentOperationID;
 
+        public string CommandString { set; get; } // строка команды
+        public DbDataReader DataReader { get; set; } // объект чтения данных
+        
         // конструктор
-        public LowLevelAccessProvider()
+        public DataBaseAccessProvider()
         {
             // получаем провайдер данных и строку подклчения из конфигурационного файла
             DataProvider = ConfigurationManager.AppSettings["provider"];
@@ -931,10 +1012,10 @@ namespace HomeFinance.AccountingSystem
             Connection.ConnectionString = ConnString;
 
             // получаем текущий номер последней операции
-            CurrentOperationID = ExtractCurrentOperationID();
+            //CurrentOperationID = ExtractFromDBCurrentOperationID(); ??????????????
         }
 
-        int ExtractCurrentOperationID()
+        int ExtractFromDBCurrentOperationID()
         {
             // находим максимальный номер OperationID
             string CommandString = "select max(ID) as maxOpID from HomeFinance.dbo.Operations";
@@ -966,6 +1047,27 @@ namespace HomeFinance.AccountingSystem
         }
 
         // функция чтения данных из БД
+        public void Execute()
+        {
+            DbCommand cmd = ProviderFactory.CreateCommand();
+            cmd.Connection = Connection;
+            cmd.CommandText = CommandString;
+            cmd.Transaction = Transaction;
+            Connection.Open();
+            try
+            {
+                DataReader = cmd.ExecuteReader();
+                Transaction.Commit();
+                Connection.Close();
+            }
+            catch (DbException e)
+            {
+                Transaction.Rollback();
+                Connection.Close();
+                throw new Exception("Ошибка доступа к Базе данных: " + e.Message, e);
+            }
+            
+        }
         public DbDataReader ReadDataFromBD(string CommandString)
         {
             // получаем фабрику поставщиков

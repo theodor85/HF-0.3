@@ -134,7 +134,7 @@ namespace HomeFinance.ConsoleInterface
             // выводим шапку
             Console.WriteLine("*****************************************************************");
             Console.WriteLine("*****************************************************************");
-            Console.WriteLine("Home Finance v0.2.001 24/10/2017 by Teddy Coder.");
+            Console.WriteLine("Home Finance v0.3.001 30/10/2017 by Teddy Coder.");
             Console.WriteLine("Добро пожаловать!");
             Console.WriteLine();
         }
