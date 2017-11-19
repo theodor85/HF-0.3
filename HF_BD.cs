@@ -46,7 +46,20 @@ namespace HomeFinance.AccountingSystem
     public abstract class AccountingSystemObject
     {
         protected DataBaseAccessProvider DBAccessProvider;
-
+        protected string CommandString;
+        protected void ReferToDataBase()
+        {
+            DBAccessProvider.CommandString = CommandString;
+            try{
+                DBAccessProvider.Execute();
+            }
+            catch (Exception e){
+                throw new Exception("Ошибка доступа к БД.\n\tСообщение: " + e.Message + "\n\tСтек вызовов: " + e.StackTrace, e);
+            }
+            finally{                // Обязательная очистка командной строки
+                CommandString = "";
+            }
+        }
     }
 
     //********************* Классы Cправочник  и Элемент справочника**********************************************
@@ -54,13 +67,12 @@ namespace HomeFinance.AccountingSystem
     {
         string ReferenceName;
         List<ReferenceItem> ItemsList;
-        string CommandString;
 
         public Reference(string ReferenceName)
         {
             DBAccessProvider = new DataBaseAccessProvider();
             this.ReferenceName = ReferenceName;  // еще надо бы проверить корректность имени справочника
-            ItemsList = null;
+            ItemsList = new List<ReferenceItem>();
             CommandString = "";
             MakeSQLCommandItemsList();
             ReferToDataBase();
@@ -68,11 +80,12 @@ namespace HomeFinance.AccountingSystem
         }
         public void AddItem(string ItemName)
         {
-            MakeSQLCommantAddItem(ItemName);
+            MakeSQLCommandAddItem(ItemName);
+            MakeSQLCommandItemsList();
             ReferToDataBase();
             RefreshItemsList();
         }
-        public List<string> GetItemsList()
+        public List<string> GetNamesList()
         {
             List<string> NamesList = new List<string>();
             foreach (ReferenceItem item in ItemsList) {
@@ -82,7 +95,8 @@ namespace HomeFinance.AccountingSystem
         }
         public void DeleteItem(string ItemName)
         {
-            MakeSQLCommantDeleteItem(ItemName);
+            MakeSQLCommandDeleteItem(ItemName);
+            MakeSQLCommandItemsList();
             ReferToDataBase();
             RefreshItemsList();
         }
@@ -94,7 +108,9 @@ namespace HomeFinance.AccountingSystem
         }
         public string GetName(int ID)
         {
-
+            foreach (ReferenceItem item in ItemsList)
+                if (item.ID == ID) return item.Name;
+            throw new Exception("Reference.GetID: элемент с ID = " + ID + " справочника '" + ReferenceName + "' не обнаружен!");
         }
         public bool isItemExists(string ItemName)
         {
@@ -106,29 +122,13 @@ namespace HomeFinance.AccountingSystem
         void MakeSQLCommandItemsList(){
             CommandString += "SELECT * FROM HomeFinance.dbo." + ReferenceName + "; ";
         }
-        void MakeSQLCommantAddItem(string ItemName){
+        void MakeSQLCommandAddItem(string ItemName){
              CommandString += "INSERT INTO HomeFinance.dbo." + ReferenceName + " (Name) VALUES (N\'" + ItemName + "\'); ";
         }
-        void MakeSQLCommantDeleteItem(string ItemName){
+        void MakeSQLCommandDeleteItem(string ItemName){
             CommandString += "DELETE FROM HomeFinance.dbo." + ReferenceName + " WHERE Name = N\'" + ItemName + "\'; ";
         }
-
-        void ReferToDataBase()   // обратиться к Базе данных
-        {
-            DBAccessProvider.CommandString = CommandString;
-            try {
-                DBAccessProvider.Execute();
-            }
-            catch (Exception e) {
-                throw new Exception("Ошибка в функции Reference.ReferToDataBase: ошибка доступа к БД. Сообщение: " + e.Message, e);
-            }
-            finally{                // Обязательная очистка командной строки
-                CommandString = "";
-            }
-        }
-
-        // обновляет список элементов из обхекта чтения данных
-        // применять сразу после обращения к БД (ReferToDataBase)
+        
         void RefreshItemsList()
         {
             DbDataReader dr = DBAccessProvider.DataReader;
@@ -155,44 +155,37 @@ namespace HomeFinance.AccountingSystem
         string RegisterName;
         public RegisterTurnoverReports(string RegisterName)
         {
+            DBAccessProvider = new DataBaseAccessProvider();
             this.RegisterName = RegisterName;
-            base.Initialization();
+            CommandString = "";
         }
         public List<TItemState> ReportTurnover(DateTime BeginDate, DateTime EndDate)
-        {            
-            List<TItemState> TurnoversList = new List<TItemState>();  // результирующий список            
-            string CommandString = "";                                     // строка SQL- запроса
-            DbDataReader DReader;                                     // объект чтения данных
-            // строковое представление даты для SQL-запроса
-            string strBeginDate = Utility.MakeSQLDate(BeginDate) ;
+        {                       
+            MakeSQLCommand(BeginDate, EndDate);
+            ReferToDataBase();
+            return GetTurnoverList();
+        }
+        void MakeSQLCommand(DateTime BeginDate, DateTime EndDate)
+        {
+            string strBeginDate = Utility.MakeSQLDate(BeginDate);    // строковое представление даты для SQL-запроса
             string strEndDate = Utility.MakeSQLDate(EndDate);
-
-            // получим все статьи расходов из справочника
-            CommandString = "SELECT ID, Name FROM HomeFinance.dbo." + RegisterName;
-            try{
-                DReader = DataBaseAccessProvider.ReadDataFromBD(CommandString);
-            }
-            catch (Exception e){
-                throw new Exception("Функция RegisterTurnoverReports.ReportTurnover: ошибка доступа к справочнику статей расходов. Сообщение: " + e.Message, e);
-            }
-
             CommandString = "SELECT E.Name as Expense, SUM(R.MoveSum) as Rez FROM HomeFinance.dbo.RT_Moves_" + RegisterName;
             CommandString = CommandString + " R, HomeFinance.dbo." + RegisterName + " E, HomeFinance.dbo.Operations O ";
             CommandString = CommandString + "WHERE E.ID = R.Name AND O.ID = R.Operation AND O.Date >=" + strBeginDate + " AND O.Date <=" + strEndDate;
             CommandString = CommandString + "group by E.Name ";
-
-            try{
-                DReader = DataBaseAccessProvider.ReadDataFromBD(CommandString);
-            }
-            catch (Exception e){
-                throw new Exception("Функция RegisterTurnoverReports.ReportTurnover: ошибка получения информации из регистра расходов. Сообщение: " + e.Message, e);
-            }
-
-            while (DReader.Read())
+        }        
+        void MakeSQLCommandReferenceItems(){
+            CommandString = "SELECT ID, Name FROM HomeFinance.dbo." + RegisterName;
+        }
+        List<TItemState> GetTurnoverList()
+        {
+            List<TItemState> TurnoversList = new List<TItemState>();  // результирующий список            
+            DbDataReader dr = DBAccessProvider.DataReader;
+            while (dr.Read())
             {
                 TItemState NewItem = new TItemState();
-                NewItem.ItemName = DReader["Expense"].ToString();
-                NewItem.Sum = (double)DReader["Rez"];
+                NewItem.ItemName = dr["Expense"].ToString();
+                NewItem.Sum = (double)dr["Rez"];
                 TurnoversList.Add(NewItem);
             }
             return TurnoversList;
@@ -202,7 +195,7 @@ namespace HomeFinance.AccountingSystem
     class RegisterTurnovers: AccountingSystemObject
     {
         string RegisterName;
-        public int OperaionNumber { get; set; }
+        public int OperationNumber { get; set; }
         public string Dimension
         {
             get { return Dimension; }
@@ -218,10 +211,9 @@ namespace HomeFinance.AccountingSystem
 
         public RegisterTurnovers(string RegisterName)
         {
-            base.Initialization();
             this.RegisterName = RegisterName;
             RegisterName = "";
-            OperaionNumber = -1;
+            OperationNumber = -1;
         }
         public void EnterMoving(DateTime OperationDate, double Sum)
         {
@@ -251,45 +243,54 @@ namespace HomeFinance.AccountingSystem
         string RegisterName;
         public RegisterRestReports(string RegisterName)
         {
+            DBAccessProvider = new DataBaseAccessProvider();
             this.RegisterName = RegisterName;
-            base.Initialization();
+            CommandString = "";
         }
-        public List<TItemState> ReportRests(DateTime Date)
+        public List<TItemState> ReportRests(DateTime RestsDate)
         {
-            
-            List<TItemState> BalanceList = new List<TItemState>(); // результирующий список             
-            string CommandString = "";// строка SQL- запроса
-            string strDate = Utility.MakeSQLDate(Date);  // строковое представление даты
-            List<string> ReferenceItems = new List<string>();  // список элементов справочника, ассоциированного с регистром
+            // получим все кошельки из справочника            
+            MakeSQLCommandReferenceItems();
+            ReferToDataBase();
+            // а затем обратимся к данным регстра остатков
+            MakeSQLCommand(RestsDate);
+            ReferToDataBase();
+            return GetRestsList();
+        }
+        private void MakeSQLCommand(DateTime RestsDate)
+        {
+            DbDataReader dr = DBAccessProvider.DataReader;
+            string strRestsDate = Utility.MakeSQLDate(RestsDate);
+            CommandString = "";
 
-            // получим все элементы из справочника
-            Reference Ref = new Reference(RegisterName);
-            ReferenceItems = Ref.GetItemsList();
-
-            try
+            // в объекте чтения - поля ID, Name справочника. Сколько элементов, столько и делаем запросов по регистру 
+            while (dr.Read())
             {
-                foreach (string item in ReferenceItems)
+                string strID = dr["ID"].ToString();
+                CommandString = CommandString + "SELECT top(1) R.Date as Dt, W.Name as Nm, R.Rest as Sum FROM HomeFinance.dbo.RR_Rests_Wallets R, HomeFinance.dbo.Wallets W ";
+                CommandString = CommandString + "WHERE R.Date<=" + strRestsDate + " AND R.Name = W.ID AND R.Name = " + strID;
+                CommandString = CommandString + " Order by Dt desc; ";
+            }
+        }        
+        void MakeSQLCommandReferenceItems(){
+            CommandString = "SELECT ID, Name FROM HomeFinance.dbo." + RegisterName;
+        }
+        private List<TItemState> GetRestsList()
+        {
+            DbDataReader dr = DBAccessProvider.DataReader;
+            List<TItemState> RestsList = new List<TItemState>();
+
+            do
+            {
+                if (dr.Read())
                 {
-                    CommandString = "SELECT top(1) R.Date as Dt, W.Name as Nm, R.Rest as Sum FROM HomeFinance.dbo.RR_Rests_Wallets R, HomeFinance.dbo.Wallets W ";
-                    CommandString = CommandString + "WHERE R.Date<=" + strDate + " AND R.Name = W.ID AND W.Name = N\'" + item + "\'";
-                    CommandString = CommandString + " Order by Dt desc";
-
-                    DbDataReader Dr = DataBaseAccessProvider.ReadDataFromBD(CommandString);
-
-                    if (Dr.Read())
-                    {
-                        TItemState NewItem;
-                        NewItem.ItemName = Dr["Nm"].ToString();
-                        NewItem.Sum = (double)Dr["Sum"];
-                        BalanceList.Add(NewItem);
-                    }
+                    TItemState NewItem = new TItemState();
+                    NewItem.ItemName = dr["Nm"].ToString();
+                    NewItem.Sum = (double)dr["Sum"];
+                    RestsList.Add(NewItem);
                 }
-            }
-            catch (Exception e){
-                throw new Exception("Функция ReportBalance: ошибка получения отчета об остaтках. Сообщение: " + e.Message, e);
-            }
-
-            return BalanceList;
+            } while (dr.NextResult());
+            return RestsList;
         }
     }
 
@@ -992,7 +993,6 @@ namespace HomeFinance.AccountingSystem
         // фабрика поставщиков и подключение
         DbProviderFactory ProviderFactory;
         DbConnection Connection;
-        DbTransaction Transaction;
 
         int CurrentOperationID;
 
@@ -1018,22 +1018,21 @@ namespace HomeFinance.AccountingSystem
         int ExtractFromDBCurrentOperationID()
         {
             // находим максимальный номер OperationID
-            string CommandString = "select max(ID) as maxOpID from HomeFinance.dbo.Operations";
-            DbDataReader dr;  // Объект чтения данных
+            CommandString = "select max(ID) as maxOpID from HomeFinance.dbo.Operations";
             int MaxOperationID; // здесь будет результат
 
             try{
-                dr = ReadDataFromBD(CommandString);
+                Execute();
             }
             catch (Exception e){
-                throw new Exception("LowLevelAccessProvider.GetCurrentOperationID: Ошибка получения данных о номере операции. БД не инициализирована! Сообщение: " + e.Message, e);
+                throw new Exception("DataBaseAccessProvider.GetCurrentOperationID: Ошибка получения данных о номере операции. БД не инициализирована! Сообщение: " + e.Message, e);
             }
 
-            dr.Read();
-            if (dr.IsDBNull(0))
+            DataReader.Read();
+            if (DataReader.IsDBNull(0))
                 MaxOperationID = -1;
             else
-                MaxOperationID = (int)dr["maxOpID"];
+                MaxOperationID = (int)DataReader["maxOpID"];
             return MaxOperationID;
         }
 
@@ -1047,67 +1046,38 @@ namespace HomeFinance.AccountingSystem
         }
 
         // функция чтения данных из БД
+        public void xxxx()
+        {
+            DbCommand cmd = ProviderFactory.CreateCommand();
+            Connection.Open();
+            cmd.Connection = Connection;
+            cmd.CommandText = CommandString;
+            DataReader = cmd.ExecuteReader();
+        }
         public void Execute()
         {
             DbCommand cmd = ProviderFactory.CreateCommand();
+            if (Connection.State == System.Data.ConnectionState.Closed)
+                Connection.Open();
+
+            if (DataReader != null)
+                if (!DataReader.IsClosed)
+                    DataReader.Close();
+            
             cmd.Connection = Connection;
             cmd.CommandText = CommandString;
-            cmd.Transaction = Transaction;
-            Connection.Open();
-            try
-            {
+
+            try{
                 DataReader = cmd.ExecuteReader();
-                Transaction.Commit();
-                Connection.Close();
             }
             catch (DbException e)
             {
-                Transaction.Rollback();
                 Connection.Close();
-                throw new Exception("Ошибка доступа к Базе данных: " + e.Message, e);
+                throw new Exception("При вводе операции произошла ошибка доступа к базе данных! " + e.Message, e);
             }
-            
-        }
-        public DbDataReader ReadDataFromBD(string CommandString)
-        {
-            // получаем фабрику поставщиков
-            DbProviderFactory df = DbProviderFactories.GetFactory(DataProvider);
-            // работа с подключением 
-            DbConnection cn = df.CreateConnection();
-
-            cn.ConnectionString = ConnString;
-            cn.Open();
-            // объект команды
-            DbCommand cmd = df.CreateCommand();
-            cmd.Connection = cn;
-            cmd.CommandText = CommandString;
-
-            // используем объект чтения
-            DbDataReader dr = cmd.ExecuteReader();
-            return dr;
 
         }
-        // функция изменения данных в БД
-        public void ChangeDataInBD(string CommandString)
-        {
-            // получаем фабрику поставщиков
-            DbProviderFactory df = DbProviderFactories.GetFactory(DataProvider);
-            // работа с подключением 
-            using (DbConnection cn = df.CreateConnection())
-            {
-                cn.ConnectionString = ConnString;
-                cn.Open();
-                // объект команды
-                DbCommand cmd = df.CreateCommand();
-                cmd.Connection = cn;
-                cmd.CommandText = CommandString;
-
-                // используем объект чтения
-                cmd.ExecuteNonQuery();
-            }
-            return;
-        }
-
+        
     }
 
     // ***************************** Статический класс со вспомогательными функциями*******************

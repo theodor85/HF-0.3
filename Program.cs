@@ -12,9 +12,8 @@ namespace HomeFinance
     {
         static void Main(string[] args)
         {
-            HF_BD MyBD = new HF_BD();
             MainWindow W = new MainWindow();
-            W.Start(MyBD);
+            W.Start();
         }
     }
 }

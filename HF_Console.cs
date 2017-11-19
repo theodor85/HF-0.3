@@ -7,11 +7,9 @@ using HomeFinance.AccountingSystem;
 namespace HomeFinance.ConsoleInterface
 {
     public abstract class Window
-    {
-        protected HF_BD DB; 
-        public void Start(HF_BD CurrDB)
+    { 
+        public void Start()
         {
-            DB = CurrDB;
             bool CloseWindow = false;  // если истина, то окно закрывается 
             string Parametres;        // параметры для обмена данными между методами
 
@@ -89,7 +87,7 @@ namespace HomeFinance.ConsoleInterface
 
         // вывести список операций
         protected void ReportOperationsList(DateTime StartDate, DateTime EndDate)
-        {
+        {/*
             List<TOperation> OperationsList = DB.GetOperationsList(StartDate, EndDate);
 
             Console.WriteLine("");
@@ -119,11 +117,11 @@ namespace HomeFinance.ConsoleInterface
                     Source = tabs2 + Source;
 
                 Console.WriteLine("{0}\t{1}\t{2}" + Source + Dest + "{3}", Op.ID.ToString(), Op.Date.ToString("dd.MM.yyyy"), Op.OperationType.ToString(), Op.Sum.ToString("#####.00", CultureInfo.CreateSpecificCulture("en-US")));
-
+                
             };
 
             Console.WriteLine("-------------------------------------------------------------------------------");
-
+            */
         }
     }
 
@@ -144,8 +142,10 @@ namespace HomeFinance.ConsoleInterface
             int CurrentYear = DateTime.Today.Year;
             int NumberOfDaysInMonth = DateTime.DaysInMonth(CurrentYear, CurrentMonth);
             DateTime Today = DateTime.Today;
-            DateTime BeginMonth = new DateTime(CurrentYear, CurrentMonth, 1);
-            DateTime EndMonth = new DateTime(CurrentYear, CurrentMonth, NumberOfDaysInMonth);
+            /*   DateTime BeginMonth = new DateTime(CurrentYear, CurrentMonth, 1);
+               DateTime EndMonth = new DateTime(CurrentYear, CurrentMonth, NumberOfDaysInMonth);  */
+            DateTime BeginMonth = new DateTime(2017, 10, 1);
+            DateTime EndMonth = new DateTime(2017, 10, 31);
 
             // выводим отчет об остатках
             Console.WriteLine("-----------------------------------------------------------------");
@@ -194,15 +194,15 @@ namespace HomeFinance.ConsoleInterface
                     return true;
                 case "1":
                     EnterOperations WOp = new EnterOperations();
-                    WOp.Start(DB);
+                    WOp.Start();
                     break;
                 case "2":
                     AddReferenceItems WRefs = new AddReferenceItems();
-                    WRefs.Start(DB);
+                    WRefs.Start();
                     break;
                 case "3":
                     OperationsList OpLst = new OperationsList();
-                    OpLst.Start(DB);
+                    OpLst.Start();
                     break;
                 default:
                     Console.WriteLine("Введена недопустимая команда!");
@@ -344,7 +344,7 @@ namespace HomeFinance.ConsoleInterface
 
                 try
                 {
-                    DB.EnterOperation(TypeOfTheOperation, DT, Source, Destination, Sum);
+                  //  DB.EnterOperation(TypeOfTheOperation, DT, Source, Destination, Sum);
                     Console.WriteLine();
                     Console.WriteLine("Операция успешно завершена! Нажмите Enter для продложения.");
                     Console.WriteLine();
@@ -458,7 +458,7 @@ namespace HomeFinance.ConsoleInterface
                 Console.WriteLine(HeadLine);
                 Console.WriteLine();
                 try{
-                    Items = Ref.GetItemsList();
+                    Items = Ref.GetNamesList();
                 }
                 catch (Exception e){
                     Console.WriteLine();
@@ -627,7 +627,7 @@ namespace HomeFinance.ConsoleInterface
                     }
                     try
                     {
-                        DB.DeleteOperation(ID);
+                        //DB.DeleteOperation(ID);
                         Console.WriteLine("Операция удалена успешно. Нажмите Enter");
                         Console.ReadLine();
                     }
