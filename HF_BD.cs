@@ -60,6 +60,11 @@ namespace HomeFinance.AccountingSystem
                 CommandString = "";
             }
         }
+        public AccountingSystemObject()
+        {
+            DBAccessProvider = new DataBaseAccessProvider();
+            CommandString = "";
+        }
     }
 
     //********************* Классы Cправочник  и Элемент справочника**********************************************
@@ -68,12 +73,10 @@ namespace HomeFinance.AccountingSystem
         string ReferenceName;
         List<ReferenceItem> ItemsList;
 
-        public Reference(string ReferenceName)
+        public Reference(string ReferenceName) : base()
         {
-            DBAccessProvider = new DataBaseAccessProvider();
             this.ReferenceName = ReferenceName;  // еще надо бы проверить корректность имени справочника
             ItemsList = new List<ReferenceItem>();
-            CommandString = "";
             MakeSQLCommandItemsList();
             ReferToDataBase();
             RefreshItemsList();
@@ -153,11 +156,8 @@ namespace HomeFinance.AccountingSystem
     public class RegisterTurnoverReports:AccountingSystemObject
     {
         string RegisterName;
-        public RegisterTurnoverReports(string RegisterName)
-        {
-            DBAccessProvider = new DataBaseAccessProvider();
+        public RegisterTurnoverReports(string RegisterName) : base(){
             this.RegisterName = RegisterName;
-            CommandString = "";
         }
         public List<TItemState> ReportTurnover(DateTime BeginDate, DateTime EndDate)
         {                       
@@ -209,11 +209,8 @@ namespace HomeFinance.AccountingSystem
             }
         }
 
-        public RegisterTurnovers(string RegisterName)
-        {
+        public RegisterTurnovers(string RegisterName) : base(){
             this.RegisterName = RegisterName;
-            RegisterName = "";
-            OperationNumber = -1;
         }
         public void EnterMoving(DateTime OperationDate, double Sum)
         {
@@ -231,7 +228,6 @@ namespace HomeFinance.AccountingSystem
             CommandString = CommandString + " VALUES (" + OperationNumber.ToString() + ", " + strID + ", " + Sum.ToString("#####.00", CultureInfo.CreateSpecificCulture("en-US")) + "); ";
 
         }
-
         bool isDimensionExists(string DimensionName) {  // проверка элемента справочника на существование
             return new Reference(RegisterName).isItemExists(DimensionName);
         }
@@ -241,11 +237,8 @@ namespace HomeFinance.AccountingSystem
     public class RegisterRestReports : AccountingSystemObject
     {
         string RegisterName;
-        public RegisterRestReports(string RegisterName)
-        {
-            DBAccessProvider = new DataBaseAccessProvider();
+        public RegisterRestReports(string RegisterName) : base(){
             this.RegisterName = RegisterName;
-            CommandString = "";
         }
         public List<TItemState> ReportRests(DateTime RestsDate)
         {
@@ -294,9 +287,176 @@ namespace HomeFinance.AccountingSystem
         }
     }
 
-    public class RegisterRest : AccountingSystemObject
-    { }
+    public class RegisterRests : AccountingSystemObject
+    {
+        string RegisterName;
+        public int OperationNumber { get; set; }
+        public string Dimension
+        {
+            get { return Dimension; }
+            set
+            {
+                if (isDimensionExists(value)){
+                    Dimension = value;
+                    strDimensionID = GetDimensionID();
+                }else
+                    throw new Exception("RegisterRest.setDimension: элемент '"
+                        + value + "' справочника '" + RegisterName + "' не существует!");
+            }
+        }
+        private DateTime OperationDate;
+        private string strOperationDate;
+        private string strDimensionID;
 
+        public RegisterRests(string RegisterName) : base(){
+            this.RegisterName = RegisterName;
+        }
+        public void EnterMoving(DateTime OperationDate, double Sum)
+        {
+            strOperationDate = Utility.MakeSQLDate(OperationDate);
+            MakeSQLCommandMove(Sum);
+            ReferToDataBase();
+            // корректировка остатков в двва шага - получение остатков на дату,
+            // затем пересчет строк в таблице
+            MakeSQLCommandRestsForCurrentDate(Sum);
+            ReferToDataBase();
+            MakeSQLCommandRestsReCount(Sum);
+            ReferToDataBase();                
+        }
+        private void MakeSQLCommandMove(double Sum)
+        {
+            CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RR_Moves_" + RegisterName + " (Operation, Name, MoveSum)";
+            CommandString = CommandString + " VALUES (" + OperationNumber.ToString() + ", " + strDimensionID + ", " + Utility.SumToStringForSQL(Sum) + "); ";
+        }
+        private void MakeSQLCommandRestsForCurrentDate(double Sum){
+            CommandString = "SELECT Date, Rest FROM HomeFinance.dbo.RR_Rests_" + RegisterName
+                + " WHERE Date<=" + strOperationDate + " and Name=" + strDimensionID + " Order by Date desc";
+        }
+        private void MakeSQLCommandRestsReCount(double Sum)
+        {
+            DbDataReader dr = DBAccessProvider.DataReader;
+            
+            // есть ли строки в выборке?
+            if (dr.HasRows)   // есть
+            {
+                dr.Read();
+                // "Верхняя" дата равна текущей?
+                if ((DateTime)dr["Date"] == OperationDate)    // да
+                {
+                    CommandString = CommandString + "UPDATE HomeFinance.dbo.RR_Rests_" + RegisterName 
+                        + " SET Rest = Rest + " + Utility.SumToStringForSQL(Sum) 
+                        + " WHERE Date = " + strOperationDate + " and Name=" + strDimensionID + "; ";
+                }
+                else      // нет
+                {
+                    double AddSum;
+                    AddSum = Sum + double.Parse(dr["Rest"].ToString());
+                    CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RR_Rests_" + RegisterName 
+                        + " (Date, Name, Rest) " 
+                        + "VALUES (" + strOperationDate + ", " + strDimensionID + ", " + Utility.SumToStringForSQL(AddSum) + "); ";
+                }
+            }
+            else   //нет строк в выборке
+            {
+                CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RR_Rests_" + RegisterName + " (Date, Name, Rest) "
+                    + "VALUES (" + strOperationDate + ", " + strDimensionID + ", " + Utility.SumToStringForSQL(Sum) + "); ";
+            }
+
+            // есть ли строки с датой большей даты операции ?
+            // увеличиваем остатки во всех строках с датой большей даты текущей операции (если такие строки есть) на сумму текущей операции
+            CommandString = CommandString + "UPDATE HomeFinance.dbo.RR_Rests_" + RegisterName 
+                + " SET Rest = Rest + " + Utility.SumToStringForSQL(Sum) 
+                + " WHERE Date > " + strOperationDate + " and Name=" + strDimensionID + "; ";
+        }
+        private string GetDimensionID()
+        {
+            string strID;
+            // получить ID нашего разреза учета 
+            Reference Ref = new Reference(RegisterName);
+            strID = Ref.GetID(Dimension).ToString();
+            return strID;
+        }
+        bool isDimensionExists(string DimensionName)
+        {  // проверка элемента справочника на существование
+            return new Reference(RegisterName).isItemExists(DimensionName);
+        }
+    }
+
+    //*********************Класс операции ***********************************************************
+    public class Operation:AccountingSystemObject
+    {
+        public OperationTypes TypeOfTheOperation { get; set; }
+        public DateTime OperationDate
+        {
+            get { return OperationDate; }
+            set
+            {
+                OperationDate = value;
+                strOperationDate = Utility.MakeSQLDate(value);
+            }
+        }
+        public string Source
+        {
+            get { return Source; }
+            set{
+                Source = Utility.MakeUnicodeStringForSQL(value);
+            }
+        }
+        public string Destination
+        {
+            get { return Destination; }
+            set{
+                Destination = Utility.MakeUnicodeStringForSQL(value);
+            }
+        }
+            
+        private int OperationNumber;
+        private string strOperationDate;
+
+        public Operation() : base(){
+            OperationNumber = DBAccessProvider.GetCurrentOperationID();
+        }
+        public void Enter(double Sum)
+        {
+            OperationNumber++;
+            MakeSQLCommandAddToOperationTable(Sum);
+
+            switch (TypeOfTheOperation)
+            {
+                case OperationTypes.Rest:     // операция введения остатков
+                    RR_Moving(ref CommandString, "Wallets", IDOfTheOperation, OperationDate, Destination, Sum);  // движение по регистру остатков
+                    break;
+                case OperationTypes.Expense:   //операция добавления расходов
+                    RR_Moving(ref CommandString, "Wallets", IDOfTheOperation, OperationDate, Source, -Sum);   // движение по регистру остатков (списание средств)
+                    RT_Moving(ref CommandString, "Expenses", IDOfTheOperation, OperationDate, Destination, Sum);    // движение по регистру оборотов (расходы)
+                    break;
+                case OperationTypes.Income:
+                    RR_Moving(ref CommandString, "Wallets", IDOfTheOperation, OperationDate, Destination, Sum);   // движение по регистру остатков 
+                    RT_Moving(ref CommandString, "Incomes", IDOfTheOperation, OperationDate, Source, Sum);    // движение по регистру оборотов
+                    break;
+                case OperationTypes.Transfer:
+                    RR_Moving(ref CommandString, "Wallets", IDOfTheOperation, OperationDate, Source, -Sum);   // движение по регистру остатков 
+                    RR_Moving(ref CommandString, "Wallets", IDOfTheOperation, OperationDate, Destination, Sum);   // движение по регистру остатков 
+                    break;
+            }
+        }
+
+        private void MakeSQLCommandAddToOperationTable(double Sum)
+        {
+            CommandString = "INSERT INTO HomeFinance.dbo.Operations (ID, Date, OperationType, Source, Destination, Sum)"
+                + " VALUES (" + OperationNumber.ToString() + ", " + strOperationDate + ", "
+                + OperationNumber.ToString() + ", " + Source + ", " + Destination + ", " 
+                + Utility.SumToStringForSQL(Sum) + "); ";
+        }
+
+        public void Delete (int NumberOfOperation)
+        {
+
+        }
+
+    }
+
+    //********************** Старый класс базы данных ***********************************************
     public class HF_BD
     {
         // поля для инициализации базы данных DataProvider и ConnString
@@ -836,7 +996,8 @@ namespace HomeFinance.AccountingSystem
              * 
              */
             //сконструировать строку - SQL-запрос
-            string csGetDate = "SELECT Date, Rest FROM HomeFinance.dbo.RR_Rests_" + RegisterName + " WHERE Date<=" + strDate + " and Name=" + ID + " Order by Date desc";
+            string csGetDate = "SELECT Date, Rest FROM HomeFinance.dbo.RR_Rests_" + RegisterName 
+                + " WHERE Date<=" + strDate + " and Name=" + ID + " Order by Date desc";
             try
             {
                 DReader = ReadDataFromBD(csGetDate);
@@ -996,7 +1157,7 @@ namespace HomeFinance.AccountingSystem
 
         int CurrentOperationID;
 
-        public string CommandString { set; get; } // строка команды
+        private string CommandString { set; get; } // строка команды
         public DbDataReader DataReader { get; set; } // объект чтения данных
         
         // конструктор
@@ -1010,12 +1171,9 @@ namespace HomeFinance.AccountingSystem
             ProviderFactory = DbProviderFactories.GetFactory(DataProvider);
             Connection = ProviderFactory.CreateConnection();
             Connection.ConnectionString = ConnString;
-
-            // получаем текущий номер последней операции
-            //CurrentOperationID = ExtractFromDBCurrentOperationID(); ??????????????
         }
 
-        int ExtractFromDBCurrentOperationID()
+        public int GetCurrentOperationID()
         {
             // находим максимальный номер OperationID
             CommandString = "select max(ID) as maxOpID from HomeFinance.dbo.Operations";
@@ -1035,25 +1193,11 @@ namespace HomeFinance.AccountingSystem
                 MaxOperationID = (int)DataReader["maxOpID"];
             return MaxOperationID;
         }
-
-        public int GetCurrentOperationID()
-        {
-            return CurrentOperationID;
-        }
         public void IncreaseCurrentOperationID()
         {
             CurrentOperationID++;
         }
 
-        // функция чтения данных из БД
-        public void xxxx()
-        {
-            DbCommand cmd = ProviderFactory.CreateCommand();
-            Connection.Open();
-            cmd.Connection = Connection;
-            cmd.CommandText = CommandString;
-            DataReader = cmd.ExecuteReader();
-        }
         public void Execute()
         {
             DbCommand cmd = ProviderFactory.CreateCommand();
@@ -1075,9 +1219,7 @@ namespace HomeFinance.AccountingSystem
                 Connection.Close();
                 throw new Exception("При вводе операции произошла ошибка доступа к базе данных! " + e.Message, e);
             }
-
-        }
-        
+        }  
     }
 
     // ***************************** Статический класс со вспомогательными функциями*******************
@@ -1085,6 +1227,12 @@ namespace HomeFinance.AccountingSystem
     {
         public static string MakeSQLDate(DateTime DT){
             return "'" + DT.Month.ToString() + "." + DT.Day.ToString() + "." + DT.Year.ToString() + "'";
+        }
+        public static string SumToStringForSQL(double Sum){
+            return Sum.ToString("#####.00", CultureInfo.CreateSpecificCulture("en-US"));
+        }  
+        public static string MakeUnicodeStringForSQL(string s){
+            return "N\'" + s + "\'";
         }
     }
 }
