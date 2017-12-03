@@ -132,7 +132,7 @@ namespace HomeFinance.ConsoleInterface
             // выводим шапку
             Console.WriteLine("*****************************************************************");
             Console.WriteLine("*****************************************************************");
-            Console.WriteLine("Home Finance v0.3.001 30/10/2017 by Teddy Coder.");
+            Console.WriteLine("Home Finance v0.3.010 03/12/2017 by Teddy Coder.");
             Console.WriteLine("Добро пожаловать!");
             Console.WriteLine();
         }
@@ -285,7 +285,7 @@ namespace HomeFinance.ConsoleInterface
 
                 // вывод статей расходов
 
-                // ввод данных
+                // ввод данных  
                 Console.Write("Дата ------------->");
                 try
                 {
@@ -327,16 +327,16 @@ namespace HomeFinance.ConsoleInterface
                     break;
                 }
                 // для отладки
-                /*DT = new DateTime(2017, 10, 6);
-                Wallet = "Основной";
-                Expense = "Еда";
+                /*DT = new DateTime(2017, 11, 28);
+                Source = "Основной";
+                Destination = "Еда";
                 Sum = 10.3;
                 Console.Write("Дата ------------->");
                 Console.WriteLine(DT);
                 Console.Write("Кошелёк ---------->");
-                Console.WriteLine(Wallet);
+                Console.WriteLine(Source);
                 Console.Write("Статья расходов ---------->");
-                Console.WriteLine(Expense);
+                Console.WriteLine(Destination);
                 Console.Write("Сумма ------------>");
                 Console.WriteLine(Sum);
                 Console.ReadLine();*/
@@ -344,7 +344,13 @@ namespace HomeFinance.ConsoleInterface
 
                 try
                 {
-                  //  DB.EnterOperation(TypeOfTheOperation, DT, Source, Destination, Sum);
+                    //  DB.EnterOperation(TypeOfTheOperation, DT, Source, Destination, Sum);
+                    Operation Op = new Operation();
+                    Op.Source = Source;
+                    Op.Destination = Destination;
+                    Op.OperationDate = DT;
+                    Op.TypeOfTheOperation = TypeOfTheOperation;
+                    Op.Enter(Sum);
                     Console.WriteLine();
                     Console.WriteLine("Операция успешно завершена! Нажмите Enter для продложения.");
                     Console.WriteLine();

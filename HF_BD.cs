@@ -194,17 +194,23 @@ namespace HomeFinance.AccountingSystem
 
     class RegisterTurnovers: AccountingSystemObject
     {
-        string RegisterName;
+        private string RegisterName;
+        private string fieldDimension;
+        private string strOperationDate;
+        private string strDimensionID;
+
         public int OperationNumber { get; set; }
         public string Dimension
         {
-            get { return Dimension; }
+            get { return fieldDimension; }
             set
             {
-                if (isDimensionExists(value))
-                    Dimension = value;
+                if (isDimensionExists(value)){
+                    fieldDimension = value;
+                    strDimensionID = GetDimensionID();
+                }
                 else
-                    throw new Exception("RegisterTurnovers.setDimension: элемент '" 
+                    throw new Exception("RegisterTurnovers.setDimension: элемент '"
                         + value + "' справочника '" + RegisterName + "' не существует!");
             }
         }
@@ -214,22 +220,25 @@ namespace HomeFinance.AccountingSystem
         }
         public void EnterMoving(DateTime OperationDate, double Sum)
         {
-
-            string strDate = Utility.MakeSQLDate(OperationDate);
-            string strID;  // ID элемента справочника (разеза учета)
-            string CommandString = "";
-
-            // получить ID нашего разреза учета 
-            Reference Ref = new Reference(RegisterName);
-            strID = Ref.GetID(Dimension).ToString();
-
-            // сконструировать строку - SQL-запрос
-            CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RT_Moves_" + RegisterName + " (Operation, Name, MoveSum)";
-            CommandString = CommandString + " VALUES (" + OperationNumber.ToString() + ", " + strID + ", " + Sum.ToString("#####.00", CultureInfo.CreateSpecificCulture("en-US")) + "); ";
-
+            strOperationDate = Utility.MakeSQLDate(OperationDate);
+            MakeSQLCommandMove(Sum);
+            ReferToDataBase();
         }
         bool isDimensionExists(string DimensionName) {  // проверка элемента справочника на существование
             return new Reference(RegisterName).isItemExists(DimensionName);
+        }
+        string GetDimensionID()
+        {
+            string strID;
+            // получить ID нашего разреза учета 
+            Reference Ref = new Reference(RegisterName);
+            strID = Ref.GetID(fieldDimension).ToString();
+            return strID;
+        }
+        void MakeSQLCommandMove(double Sum)
+        {
+            CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RT_Moves_" + RegisterName + " (Operation, Name, MoveSum)";
+            CommandString = CommandString + " VALUES (" + OperationNumber.ToString() + ", " + strDimensionID + ", " + Utility.SumToStringForSQL(Sum) + "); ";
         }
     }
 
@@ -289,24 +298,26 @@ namespace HomeFinance.AccountingSystem
 
     public class RegisterRests : AccountingSystemObject
     {
-        string RegisterName;
+        private string RegisterName;
+        private string fieldDimension;
+        private DateTime OperationDate;
+        private string strOperationDate;
+        private string strDimensionID;
+
         public int OperationNumber { get; set; }
         public string Dimension
         {
-            get { return Dimension; }
+            get { return fieldDimension; }
             set
             {
                 if (isDimensionExists(value)){
-                    Dimension = value;
+                    fieldDimension = value;
                     strDimensionID = GetDimensionID();
                 }else
                     throw new Exception("RegisterRest.setDimension: элемент '"
                         + value + "' справочника '" + RegisterName + "' не существует!");
             }
         }
-        private DateTime OperationDate;
-        private string strOperationDate;
-        private string strDimensionID;
 
         public RegisterRests(string RegisterName) : base(){
             this.RegisterName = RegisterName;
@@ -314,6 +325,8 @@ namespace HomeFinance.AccountingSystem
         public void EnterMoving(DateTime OperationDate, double Sum)
         {
             strOperationDate = Utility.MakeSQLDate(OperationDate);
+            this.OperationDate = OperationDate;
+
             MakeSQLCommandMove(Sum);
             ReferToDataBase();
             // корректировка остатков в двва шага - получение остатков на дату,
@@ -373,7 +386,7 @@ namespace HomeFinance.AccountingSystem
             string strID;
             // получить ID нашего разреза учета 
             Reference Ref = new Reference(RegisterName);
-            strID = Ref.GetID(Dimension).ToString();
+            strID = Ref.GetID(fieldDimension).ToString();
             return strID;
         }
         bool isDimensionExists(string DimensionName)
@@ -383,35 +396,24 @@ namespace HomeFinance.AccountingSystem
     }
 
     //*********************Класс операции ***********************************************************
-    public class Operation:AccountingSystemObject
+    public class Operation : AccountingSystemObject
     {
+        private DateTime fieldOperationDate;
+        private int OperationNumber;
+        private string strOperationDate;
+
         public OperationTypes TypeOfTheOperation { get; set; }
         public DateTime OperationDate
         {
-            get { return OperationDate; }
+            get { return fieldOperationDate; }
             set
             {
-                OperationDate = value;
+                fieldOperationDate = value;
                 strOperationDate = Utility.MakeSQLDate(value);
             }
         }
-        public string Source
-        {
-            get { return Source; }
-            set{
-                Source = Utility.MakeUnicodeStringForSQL(value);
-            }
-        }
-        public string Destination
-        {
-            get { return Destination; }
-            set{
-                Destination = Utility.MakeUnicodeStringForSQL(value);
-            }
-        }
-            
-        private int OperationNumber;
-        private string strOperationDate;
+        public string Source { get; set; }
+        public string Destination { get; set; }
 
         public Operation() : base(){
             OperationNumber = DBAccessProvider.GetCurrentOperationID();
@@ -420,33 +422,75 @@ namespace HomeFinance.AccountingSystem
         {
             OperationNumber++;
             MakeSQLCommandAddToOperationTable(Sum);
+            ReferToDataBase();
+            EnterRegisterMoves(Sum);
+        }
 
+        private void EnterRegisterMoves(double Sum)
+        {
             switch (TypeOfTheOperation)
             {
                 case OperationTypes.Rest:     // операция введения остатков
-                    RR_Moving(ref CommandString, "Wallets", IDOfTheOperation, OperationDate, Destination, Sum);  // движение по регистру остатков
+                    EnterRegisterRest("Wallets", Destination, Sum);
                     break;
                 case OperationTypes.Expense:   //операция добавления расходов
-                    RR_Moving(ref CommandString, "Wallets", IDOfTheOperation, OperationDate, Source, -Sum);   // движение по регистру остатков (списание средств)
-                    RT_Moving(ref CommandString, "Expenses", IDOfTheOperation, OperationDate, Destination, Sum);    // движение по регистру оборотов (расходы)
+                    EnterRegisterRest("Wallets", Source, -Sum);
+                    EnterRegisterTurnovers("Expenses", Destination, Sum);
                     break;
                 case OperationTypes.Income:
-                    RR_Moving(ref CommandString, "Wallets", IDOfTheOperation, OperationDate, Destination, Sum);   // движение по регистру остатков 
-                    RT_Moving(ref CommandString, "Incomes", IDOfTheOperation, OperationDate, Source, Sum);    // движение по регистру оборотов
+                    EnterRegisterRest("Wallets", Destination, Sum);
+                    EnterRegisterTurnovers("Incomes", Source, Sum);
                     break;
                 case OperationTypes.Transfer:
-                    RR_Moving(ref CommandString, "Wallets", IDOfTheOperation, OperationDate, Source, -Sum);   // движение по регистру остатков 
-                    RR_Moving(ref CommandString, "Wallets", IDOfTheOperation, OperationDate, Destination, Sum);   // движение по регистру остатков 
+                    EnterRegisterRest("Wallets", Source, -Sum);
+                    EnterRegisterRest("Wallets", Destination, Sum);
                     break;
             }
         }
+        private void EnterRegisterTurnovers(string RegisterName, string Dimension, double Sum)
+        {
+            RegisterTurnovers RT = new RegisterTurnovers(RegisterName);
+            RT.Dimension = Dimension;
+            RT.OperationNumber = OperationNumber;
 
+            // если произошел сбой при добавлении записи в таблицу, 
+            // необходимо откатить все записи, свзанные с этой операцией
+            TryAndRollback(Sum, RT);
+        }
+        private void EnterRegisterRest(string RegisterName, string Dimension, double Sum)
+        {
+            RegisterRests RR = new RegisterRests(RegisterName);
+            RR.Dimension = Dimension;
+            RR.OperationNumber = OperationNumber;
+
+            // если произошел сбой при добавлении записи в таблицу, 
+            // необходимо откатить все записи, свзанные с этой операцией
+            TryAndRollback(Sum, RR);
+        }
+        private void TryAndRollback(double Sum, AccountingSystemObject Register)
+        {           
+            try
+            {
+                if (Register is RegisterRests)
+                    ((RegisterRests)Register).EnterMoving(fieldOperationDate, Sum);
+                else
+                    ((RegisterTurnovers)Register).EnterMoving(fieldOperationDate, Sum);
+            }
+            catch (Exception e)
+            {
+                this.Delete(OperationNumber);
+                throw new Exception("Ошибка при записи движения регистра! Произошел откат операции!", e);
+            }
+        }
         private void MakeSQLCommandAddToOperationTable(double Sum)
         {
+            string OpNum = OperationNumber.ToString();
+            string OpType = "\'" + TypeOfTheOperation.ToString() + "\'";
+            string Src = Utility.MakeUnicodeStringForSQL(Source);
+            string Dest = Utility.MakeUnicodeStringForSQL(Destination);
+            string strSum = Utility.SumToStringForSQL(Sum);
             CommandString = "INSERT INTO HomeFinance.dbo.Operations (ID, Date, OperationType, Source, Destination, Sum)"
-                + " VALUES (" + OperationNumber.ToString() + ", " + strOperationDate + ", "
-                + OperationNumber.ToString() + ", " + Source + ", " + Destination + ", " 
-                + Utility.SumToStringForSQL(Sum) + "); ";
+                + " VALUES (" + OpNum + ", " + strOperationDate + ", " + OpType + ", " + Src + ", " + Dest + ", " + strSum + "); ";
         }
 
         public void Delete (int NumberOfOperation)
@@ -1157,7 +1201,7 @@ namespace HomeFinance.AccountingSystem
 
         int CurrentOperationID;
 
-        private string CommandString { set; get; } // строка команды
+        public string CommandString { set; get; } // строка команды
         public DbDataReader DataReader { get; set; } // объект чтения данных
         
         // конструктор
