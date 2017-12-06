@@ -34,7 +34,7 @@ namespace HomeFinance.AccountingSystem
     {
         public DateTime Date;
         public int ID;
-        public OperationTypes OperationType;
+        public string OperationType;
         public string Source;
         public string Destination;
         public double Sum;
@@ -418,6 +418,7 @@ namespace HomeFinance.AccountingSystem
         public Operation() : base(){
             OperationNumber = DBAccessProvider.GetCurrentOperationID();
         }
+
         public void Enter(double Sum)
         {
             OperationNumber++;
@@ -425,7 +426,6 @@ namespace HomeFinance.AccountingSystem
             ReferToDataBase();
             EnterRegisterMoves(Sum);
         }
-
         private void EnterRegisterMoves(double Sum)
         {
             switch (TypeOfTheOperation)
@@ -468,7 +468,7 @@ namespace HomeFinance.AccountingSystem
             TryAndRollback(Sum, RR);
         }
         private void TryAndRollback(double Sum, AccountingSystemObject Register)
-        {           
+        {
             try
             {
                 if (Register is RegisterRests)
@@ -491,6 +491,44 @@ namespace HomeFinance.AccountingSystem
             string strSum = Utility.SumToStringForSQL(Sum);
             CommandString = "INSERT INTO HomeFinance.dbo.Operations (ID, Date, OperationType, Source, Destination, Sum)"
                 + " VALUES (" + OpNum + ", " + strOperationDate + ", " + OpType + ", " + Src + ", " + Dest + ", " + strSum + "); ";
+        }
+
+        public List<TOperation> GetList(DateTime StartDate, DateTime EndDate)
+        {
+            MakeSQLCommandGetOperationsList(StartDate, EndDate);
+            ReferToDataBase();
+            return FillTheList();
+        }
+        private List<TOperation> FillTheList()
+        {
+            List<TOperation> OperationsList = new List<TOperation>();
+            DbDataReader dr = DBAccessProvider.DataReader;
+            try
+            {
+                while (dr.Read())
+                {
+                    TOperation NewItem = new TOperation();
+                    NewItem.ID = (int)dr["ID"];
+                    NewItem.Date = DateTime.Parse(dr["Date"].ToString());
+                    NewItem.OperationType = dr["OperationType"].ToString();
+                    NewItem.Source = dr["Source"].ToString();
+                    NewItem.Destination = dr["Destination"].ToString();
+                    NewItem.Sum = (double)dr["Sum"];
+                    OperationsList.Add(NewItem);
+                }
+            }
+            catch (Exception e){
+                throw new Exception("Operation.FillTheList: ошибка преобразовании значений. Сообщение: " + e.Message, e);
+            }
+            return OperationsList;
+        }
+        private void MakeSQLCommandGetOperationsList(DateTime StartDate, DateTime EndDate)
+        {
+            string strBeginDate = Utility.MakeSQLDate(StartDate);
+            string strEndDate = Utility.MakeSQLDate(EndDate);
+            
+            CommandString = "SELECT * FROM HomeFinance.dbo.Operations ";
+            CommandString = CommandString + "WHERE Date>=" + strBeginDate + " AND Date<= " + strEndDate;
         }
 
         public void Delete (int NumberOfOperation)
@@ -897,47 +935,7 @@ namespace HomeFinance.AccountingSystem
         {
             // результирующий список
             List<TOperation> OperationsList = new List<TOperation>();
-            // строка SQL- запроса 
-            string CommandString;
-            // объект чтения данных
-            DbDataReader DReader;
-            // строковое представление даты
-            string strBeginDate = "'" + DT1.Month.ToString() + "." + DT1.Day.ToString() + "." + DT1.Year.ToString() + "'";
-            string strEndDate = "'" + DT2.Month.ToString() + "." + DT2.Day.ToString() + "." + DT2.Year.ToString() + "'";
-
-            // получим все операции за период
-            CommandString = "SELECT * FROM HomeFinance.dbo.Operations ";
-            CommandString = CommandString + "WHERE Date>=" + strBeginDate + " AND Date<= " + strEndDate;
-            try
-            {
-                DReader = ReadDataFromBD(CommandString);
-            }
-            catch (Exception e)
-            {
-                throw new Exception("Функция GetOperationsList: ошибка доступа к списку операций. Сообщение: " + e.Message, e);
-            }
-
-            try
-            {
-                while (DReader.Read())
-                {
-                    TOperation NewItem = new TOperation();
-                    NewItem.ID = (int)DReader["ID"];
-                    NewItem.Date = DateTime.Parse(DReader["Date"].ToString());
-                    NewItem.OperationType = (OperationTypes)int.Parse(DReader["OperationType"].ToString());
-                    NewItem.Source = DReader["Source"].ToString();
-                    NewItem.Destination = DReader["Destination"].ToString();
-                    NewItem.Sum = (double)DReader["Sum"];
-                    OperationsList.Add(NewItem);
-                }
-            }
-            catch (Exception e)
-            {
-
-                throw new Exception("Функция GetOperationsList: ошибка преобразовании значений. Сообщение: ", e);
-            }
-            
-
+           
             return OperationsList;
         }
 

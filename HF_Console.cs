@@ -87,9 +87,10 @@ namespace HomeFinance.ConsoleInterface
 
         // вывести список операций
         protected void ReportOperationsList(DateTime StartDate, DateTime EndDate)
-        {/*
-            List<TOperation> OperationsList = DB.GetOperationsList(StartDate, EndDate);
-
+        {
+            Operation OperationObject = new Operation();
+            List<TOperation> OperationsList = OperationObject.GetList(StartDate, EndDate);
+            
             Console.WriteLine("");
             Console.WriteLine("ID\tДата\t\tТип\t\tИсточник\tПриемник\tСумма");
             Console.WriteLine("-------------------------------------------------------------------------------");
@@ -111,7 +112,7 @@ namespace HomeFinance.ConsoleInterface
                 else
                     Dest = Op.Destination + tabs1;
 
-                if (Op.OperationType == OperationTypes.Transfer)
+                if (Op.OperationType == "Transfer")
                     Source = tabs1 + Source;
                 else
                     Source = tabs2 + Source;
@@ -121,7 +122,7 @@ namespace HomeFinance.ConsoleInterface
             };
 
             Console.WriteLine("-------------------------------------------------------------------------------");
-            */
+            
         }
     }
 
@@ -633,7 +634,6 @@ namespace HomeFinance.ConsoleInterface
                     }
                     try
                     {
-                        //DB.DeleteOperation(ID);
                         Console.WriteLine("Операция удалена успешно. Нажмите Enter");
                         Console.ReadLine();
                     }
