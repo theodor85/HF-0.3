@@ -218,16 +218,17 @@ namespace HomeFinance.AccountingSystem
         public RegisterTurnovers(string RegisterName) : base(){
             this.RegisterName = RegisterName;
         }
+
         public void EnterMoving(DateTime OperationDate, double Sum)
         {
             strOperationDate = Utility.MakeSQLDate(OperationDate);
             MakeSQLCommandMove(Sum);
             ReferToDataBase();
         }
-        bool isDimensionExists(string DimensionName) {  // проверка элемента справочника на существование
+        private bool isDimensionExists(string DimensionName) {  // проверка элемента справочника на существование
             return new Reference(RegisterName).isItemExists(DimensionName);
         }
-        string GetDimensionID()
+        private string GetDimensionID()
         {
             string strID;
             // получить ID нашего разреза учета 
@@ -235,10 +236,20 @@ namespace HomeFinance.AccountingSystem
             strID = Ref.GetID(fieldDimension).ToString();
             return strID;
         }
-        void MakeSQLCommandMove(double Sum)
+        private void MakeSQLCommandMove(double Sum)
         {
             CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RT_Moves_" + RegisterName + " (Operation, Name, MoveSum)";
             CommandString = CommandString + " VALUES (" + OperationNumber.ToString() + ", " + strDimensionID + ", " + Utility.SumToStringForSQL(Sum) + "); ";
+        }
+
+        public void DeleteMoving(int OperationID)
+        {
+            MakeSQLCommandDeleteMoving(OperationID);
+            ReferToDataBase();
+        }
+        private void MakeSQLCommandDeleteMoving(int OperationID){
+            CommandString = "DELETE FROM HomeFinance.dbo.RT_Moves_" + RegisterName
+             + "WHERE Operation = " + OperationID.ToString() + "; ";
         }
     }
 
@@ -322,6 +333,7 @@ namespace HomeFinance.AccountingSystem
         public RegisterRests(string RegisterName) : base(){
             this.RegisterName = RegisterName;
         }
+
         public void EnterMoving(DateTime OperationDate, double Sum)
         {
             strOperationDate = Utility.MakeSQLDate(OperationDate);
@@ -331,7 +343,7 @@ namespace HomeFinance.AccountingSystem
             ReferToDataBase();
             // корректировка остатков в двва шага - получение остатков на дату,
             // затем пересчет строк в таблице
-            MakeSQLCommandRestsForCurrentDate(Sum);
+            MakeSQLCommandRestsForCurrentDate();
             ReferToDataBase();
             MakeSQLCommandRestsReCount(Sum);
             ReferToDataBase();                
@@ -341,7 +353,7 @@ namespace HomeFinance.AccountingSystem
             CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RR_Moves_" + RegisterName + " (Operation, Name, MoveSum)";
             CommandString = CommandString + " VALUES (" + OperationNumber.ToString() + ", " + strDimensionID + ", " + Utility.SumToStringForSQL(Sum) + "); ";
         }
-        private void MakeSQLCommandRestsForCurrentDate(double Sum){
+        private void MakeSQLCommandRestsForCurrentDate(){
             CommandString = "SELECT Date, Rest FROM HomeFinance.dbo.RR_Rests_" + RegisterName
                 + " WHERE Date<=" + strOperationDate + " and Name=" + strDimensionID + " Order by Date desc";
         }
@@ -392,6 +404,48 @@ namespace HomeFinance.AccountingSystem
         bool isDimensionExists(string DimensionName)
         {  // проверка элемента справочника на существование
             return new Reference(RegisterName).isItemExists(DimensionName);
+        }
+
+        public void DeleteMoving(int OperationID, DateTime OperationDate)
+        {
+            strOperationDate = Utility.MakeSQLDate(OperationDate);
+            this.OperationDate = OperationDate;
+
+            //перед удалением движения, получим его сумму
+            // она нам нужна будет для пересчета остатков
+            // пересчет будет заключатся в уменьшении всех остатков на эту сумму
+            // начиная с даты удаленного движения и позднее
+            MakeSQLCommandGetDimAndRest(OperationID);
+            ReferToDataBase();
+            double delSum = GetDeletingRestAndDimension();
+
+            MakeSQLCommandDeleteMoving(OperationID);
+            ReferToDataBase();
+
+            MakeSQLCommandRestsForCurrentDate();
+            ReferToDataBase();
+            MakeSQLCommandRestsReCount(-delSum);
+            ReferToDataBase();
+        }
+        private void MakeSQLCommandDeleteMoving(int OperationID)
+        {
+            CommandString = "DELETE FROM HomeFinance.dbo.RR_Moves_" + RegisterName
+             + "WHERE Operation = " + OperationID.ToString() + "; ";
+        }
+        private void MakeSQLCommandGetDimAndRest(int OperationID){
+            CommandString = "SELECT Name, MoveSum FROM HomeFinance.dbo.RR_Moves_" + RegisterName 
+                + " WHERE Operation = " + OperationID.ToString();
+        }
+        private double GetDeletingRestAndDimension()
+        {
+            DbDataReader dr = DBAccessProvider.DataReader;
+            double sum = 0;
+            if (dr.Read())
+            {
+                strDimensionID = dr["Name"].ToString();
+                sum = double.Parse( dr["MoveSum"].ToString() );
+            }
+            return sum;
         }
     }
 
@@ -533,7 +587,10 @@ namespace HomeFinance.AccountingSystem
 
         public void Delete (int NumberOfOperation)
         {
-
+            // todo:
+            // получить дату и тип операции
+            // удалить движения регистров
+            // удалить саму операцию
         }
 
     }
