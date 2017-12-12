@@ -249,7 +249,7 @@ namespace HomeFinance.AccountingSystem
         }
         private void MakeSQLCommandDeleteMoving(int OperationID){
             CommandString = "DELETE FROM HomeFinance.dbo.RT_Moves_" + RegisterName
-             + "WHERE Operation = " + OperationID.ToString() + "; ";
+             + " WHERE Operation = " + OperationID.ToString() + "; ";
         }
     }
 
@@ -343,9 +343,9 @@ namespace HomeFinance.AccountingSystem
             ReferToDataBase();
             // корректировка остатков в двва шага - получение остатков на дату,
             // затем пересчет строк в таблице
-            MakeSQLCommandRestsForCurrentDate();
+            MakeSQLCommandRestsForCurrentDate(strDimensionID);
             ReferToDataBase();
-            MakeSQLCommandRestsReCount(Sum);
+            MakeSQLCommandRestsReCount(Sum, strDimensionID);
             ReferToDataBase();                
         }
         private void MakeSQLCommandMove(double Sum)
@@ -353,11 +353,11 @@ namespace HomeFinance.AccountingSystem
             CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RR_Moves_" + RegisterName + " (Operation, Name, MoveSum)";
             CommandString = CommandString + " VALUES (" + OperationNumber.ToString() + ", " + strDimensionID + ", " + Utility.SumToStringForSQL(Sum) + "); ";
         }
-        private void MakeSQLCommandRestsForCurrentDate(){
+        private void MakeSQLCommandRestsForCurrentDate(string DimID){
             CommandString = "SELECT Date, Rest FROM HomeFinance.dbo.RR_Rests_" + RegisterName
-                + " WHERE Date<=" + strOperationDate + " and Name=" + strDimensionID + " Order by Date desc";
+                + " WHERE Date<=" + strOperationDate + " and Name=" + DimID + " Order by Date desc";
         }
-        private void MakeSQLCommandRestsReCount(double Sum)
+        private void MakeSQLCommandRestsReCount(double Sum, string DimID)
         {
             DbDataReader dr = DBAccessProvider.DataReader;
             
@@ -370,7 +370,7 @@ namespace HomeFinance.AccountingSystem
                 {
                     CommandString = CommandString + "UPDATE HomeFinance.dbo.RR_Rests_" + RegisterName 
                         + " SET Rest = Rest + " + Utility.SumToStringForSQL(Sum) 
-                        + " WHERE Date = " + strOperationDate + " and Name=" + strDimensionID + "; ";
+                        + " WHERE Date = " + strOperationDate + " and Name=" + DimID + "; ";
                 }
                 else      // нет
                 {
@@ -378,20 +378,20 @@ namespace HomeFinance.AccountingSystem
                     AddSum = Sum + double.Parse(dr["Rest"].ToString());
                     CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RR_Rests_" + RegisterName 
                         + " (Date, Name, Rest) " 
-                        + "VALUES (" + strOperationDate + ", " + strDimensionID + ", " + Utility.SumToStringForSQL(AddSum) + "); ";
+                        + "VALUES (" + strOperationDate + ", " + DimID + ", " + Utility.SumToStringForSQL(AddSum) + "); ";
                 }
             }
             else   //нет строк в выборке
             {
                 CommandString = CommandString + "INSERT INTO HomeFinance.dbo.RR_Rests_" + RegisterName + " (Date, Name, Rest) "
-                    + "VALUES (" + strOperationDate + ", " + strDimensionID + ", " + Utility.SumToStringForSQL(Sum) + "); ";
+                    + "VALUES (" + strOperationDate + ", " + DimID + ", " + Utility.SumToStringForSQL(Sum) + "); ";
             }
 
             // есть ли строки с датой большей даты операции ?
             // увеличиваем остатки во всех строках с датой большей даты текущей операции (если такие строки есть) на сумму текущей операции
             CommandString = CommandString + "UPDATE HomeFinance.dbo.RR_Rests_" + RegisterName 
                 + " SET Rest = Rest + " + Utility.SumToStringForSQL(Sum) 
-                + " WHERE Date > " + strOperationDate + " and Name=" + strDimensionID + "; ";
+                + " WHERE Date > " + strOperationDate + " and Name=" + DimID + "; ";
         }
         private string GetDimensionID()
         {
@@ -417,36 +417,40 @@ namespace HomeFinance.AccountingSystem
             // начиная с даты удаленного движения и позднее
             MakeSQLCommandGetDimAndRest(OperationID);
             ReferToDataBase();
-            double delSum = GetDeletingRestAndDimension();
-
-            MakeSQLCommandDeleteMoving(OperationID);
-            ReferToDataBase();
-
-            MakeSQLCommandRestsForCurrentDate();
-            ReferToDataBase();
-            MakeSQLCommandRestsReCount(-delSum);
-            ReferToDataBase();
+            DeleteMovingAndReCount(OperationID);
         }
-        private void MakeSQLCommandDeleteMoving(int OperationID)
+        private void DeleteMovingAndReCount(int OperationID)
+        {
+            DbDataReader dr = DBAccessProvider.DataReader;
+            List<TItemState> NamesAndSumList = new List<TItemState>();
+            while (dr.Read())
+            {
+                TItemState item = new TItemState();
+                item.ItemName = dr["Name"].ToString();
+                item.Sum = double.Parse(dr["MoveSum"].ToString());
+                NamesAndSumList.Add(item);
+            }
+            foreach (TItemState item in NamesAndSumList)
+            {
+                MakeSQLCommandDeleteMoving(OperationID, item.ItemName);
+                ReferToDataBase();
+
+                MakeSQLCommandRestsForCurrentDate(item.ItemName);
+                ReferToDataBase();
+                MakeSQLCommandRestsReCount(-item.Sum, item.ItemName);
+                ReferToDataBase();
+            }
+        }
+        private void MakeSQLCommandDeleteMoving(int OperationID, string NameID)
         {
             CommandString = "DELETE FROM HomeFinance.dbo.RR_Moves_" + RegisterName
-             + "WHERE Operation = " + OperationID.ToString() + "; ";
+             + " WHERE Operation = " + OperationID.ToString() + " and Name = " + NameID + "; ";
         }
         private void MakeSQLCommandGetDimAndRest(int OperationID){
             CommandString = "SELECT Name, MoveSum FROM HomeFinance.dbo.RR_Moves_" + RegisterName 
                 + " WHERE Operation = " + OperationID.ToString();
         }
-        private double GetDeletingRestAndDimension()
-        {
-            DbDataReader dr = DBAccessProvider.DataReader;
-            double sum = 0;
-            if (dr.Read())
-            {
-                strDimensionID = dr["Name"].ToString();
-                sum = double.Parse( dr["MoveSum"].ToString() );
-            }
-            return sum;
-        }
+
     }
 
     //*********************Класс операции ***********************************************************
@@ -478,9 +482,9 @@ namespace HomeFinance.AccountingSystem
             OperationNumber++;
             MakeSQLCommandAddToOperationTable(Sum);
             ReferToDataBase();
-            EnterRegisterMoves(Sum);
+            EnterRegistersMoves(Sum);
         }
-        private void EnterRegisterMoves(double Sum)
+        private void EnterRegistersMoves(double Sum)
         {
             switch (TypeOfTheOperation)
             {
@@ -587,12 +591,72 @@ namespace HomeFinance.AccountingSystem
 
         public void Delete (int NumberOfOperation)
         {
-            // todo:
-            // получить дату и тип операции
-            // удалить движения регистров
-            // удалить саму операцию
+            OperationNumber = NumberOfOperation;
+            GetOperationInfo(NumberOfOperation);
+            DeleteRegistersMoves();
+            DeleteOperation();
+        }
+        private void GetOperationInfo(int OperationNumber)
+        {
+            MakeSQLCommandGetOperationInfo(OperationNumber);
+            ReferToDataBase();
+            ExtractInfo();
+        }
+        private void MakeSQLCommandGetOperationInfo(int OperationNumber){
+            CommandString = "SELECT Date, OperationType, Destination FROM HomeFinance.dbo.Operations WHERE ID = " + OperationNumber.ToString();
+        }
+        private void ExtractInfo()
+        {
+            DbDataReader dr = DBAccessProvider.DataReader;
+            
+            if (dr.Read())
+            {
+                OperationDate = (DateTime)dr["Date"];
+                TypeOfTheOperation = Utility.StrToOperationTypes( (string)dr["OperationType"] );
+            }
         }
 
+        private void DeleteRegistersMoves()
+        {
+            switch (TypeOfTheOperation)
+            {
+                case OperationTypes.Expense:
+                    DeleteMovesRegisterTurnovers("Expenses");
+                    DeleteMovesRegisterRest("Wallets");
+                    break;
+                case OperationTypes.Income:
+                    DeleteMovesRegisterTurnovers("Incomes");
+                    DeleteMovesRegisterRest("Wallets");
+                    break;
+                case OperationTypes.Transfer:
+                    DeleteMovesRegisterRest("Wallets");
+                    break;
+                case OperationTypes.Rest:
+                    DeleteMovesRegisterRest("Wallets");
+                    break;
+                default:
+                    break;
+            }
+        }
+        private void DeleteMovesRegisterTurnovers(string RegName)
+        {
+            RegisterTurnovers RT = new RegisterTurnovers(RegName);
+            RT.DeleteMoving(OperationNumber);
+        }
+        private void DeleteMovesRegisterRest(string RegName)
+        {
+            RegisterRests RR = new RegisterRests(RegName);
+            RR.DeleteMoving(OperationNumber, OperationDate);
+        }
+
+        private void DeleteOperation()
+        {
+            MakeSQLCommandDeleteOperation();
+            ReferToDataBase();
+        }
+        private void MakeSQLCommandDeleteOperation(){
+            CommandString = "DELETE FROM HomeFinance.dbo.Operations WHERE ID = " + OperationNumber.ToString();
+        }
     }
 
     //********************** Старый класс базы данных ***********************************************
@@ -1332,6 +1396,22 @@ namespace HomeFinance.AccountingSystem
         }  
         public static string MakeUnicodeStringForSQL(string s){
             return "N\'" + s + "\'";
+        }
+        public static OperationTypes StrToOperationTypes(string Str)
+        {
+            switch (Str)
+            {
+                case "Rest":
+                    return OperationTypes.Rest;
+                case "Expense":
+                    return OperationTypes.Expense;
+                case "Income":
+                    return OperationTypes.Income;
+                case "Transfer":
+                    return OperationTypes.Transfer;
+                default:
+                    throw new Exception("Неопределенный тип операции!");
+            }
         }
     }
 }

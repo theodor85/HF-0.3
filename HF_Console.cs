@@ -143,10 +143,8 @@ namespace HomeFinance.ConsoleInterface
             int CurrentYear = DateTime.Today.Year;
             int NumberOfDaysInMonth = DateTime.DaysInMonth(CurrentYear, CurrentMonth);
             DateTime Today = DateTime.Today;
-            /*   DateTime BeginMonth = new DateTime(CurrentYear, CurrentMonth, 1);
-               DateTime EndMonth = new DateTime(CurrentYear, CurrentMonth, NumberOfDaysInMonth);  */
-            DateTime BeginMonth = new DateTime(2017, 10, 1);
-            DateTime EndMonth = new DateTime(2017, 10, 31);
+            DateTime BeginMonth = new DateTime(CurrentYear, CurrentMonth, 1);
+            DateTime EndMonth = new DateTime(CurrentYear, CurrentMonth, NumberOfDaysInMonth);  
 
             // выводим отчет об остатках
             Console.WriteLine("-----------------------------------------------------------------");
@@ -634,6 +632,8 @@ namespace HomeFinance.ConsoleInterface
                     }
                     try
                     {
+                        Operation Op = new Operation();
+                        Op.Delete(ID);
                         Console.WriteLine("Операция удалена успешно. Нажмите Enter");
                         Console.ReadLine();
                     }
